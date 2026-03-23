@@ -97,11 +97,43 @@ def get_neighborhood(mapa, coord):
     return nb
 
 
-mapa, start, end = read_file('maze2.txt')
+mapa, start, end = read_file('mapa10.txt')
 
 
 def busca_largura(mapa):
-	pass
+    # Fronteira agora é uma lista normal do Python
+    fronteira = []
+    fronteira.append((start, [start])) 
+    
+    # set() é nativo do Python, não precisa importar nada!
+    visitados = set()
+    visitados.add(start)
+    
+    # loop do
+    while len(fronteira) > 0:
+        
+        # Remove o primeiro elemento da lista (índice 0)
+        atual, caminho = fronteira.pop(0)
+        
+        # Checa se chegamos no final
+        if atual == end:
+            return caminho
+            
+        # Expande a fronteira buscando os vizinhos
+        vizinhos = get_neighborhood(mapa, atual)
+        
+        for vizinho in vizinhos:
+            # Se ainda não pisamos neste vizinho...
+            if vizinho not in visitados:
+                visitados.add(vizinho) # Marca como visitado
+                
+                # Cria a nova rota
+                novo_caminho = caminho + [vizinho]
+                
+                # Coloca o vizinho no final da lista
+                fronteira.append((vizinho, novo_caminho))
+                
+    return None
 
 def busca_profundidade(mapa):
 	pass 
@@ -113,6 +145,31 @@ def manhattan_distance(_from, to):
 def busca_a_estrela(mapa):
 	pass
 
-#busca_largura(mapa)
+def print_resultado(mapa, caminho):
+    print("\n=== Resultado da Busca em Largura ===\n")
+    
+    # Transformamos a lista em um 'set' (conjunto) para a verificação ficar mais rápida
+    caminho_set = set(caminho)
+    
+    for j in range(y):
+        for i in range(x):
+            # Se a coordenada atual faz parte do caminho que o algoritmo encontrou...
+            if (i, j) in caminho_set:
+                # Se for Início (I) ou Fim (F), mantemos a letra original 
+                if mapa[j][i] == 'I' or mapa[j][i] == 'F':
+                    print(mapa[j][i], end='')
+                else:
+                    # Desenhamos o caminho com um bloco (ou troque por '*' se preferir)
+                    print('█', end='')
+            else:
+                # Se não faz parte do caminho, imprime o caractere original do mapa
+                print(mapa[j][i], end='')
+        print() # Quebra de linha ao final de cada linha do mapa
+
+caminho_encontrado = busca_largura(mapa)
+
 #busca_profundidade(mapa)
 #busca_a_estrela(mapa)
+
+print_resultado(mapa, caminho_encontrado)
+
