@@ -1,7 +1,16 @@
+import colorama
+import time
 from queue import PriorityQueue
+from TreeNode import TreeNode
+
+colorama.init()
 
 y = 0
 x = 0
+
+def clear_screen():
+    print("\033[2J")
+
 
 def read_file(filename):
 
@@ -29,13 +38,13 @@ def read_file(filename):
     return lines, start, end
 
 
-def printMap(lines, actual):
+def print_map(lines, actual):
 
     print()
     print()
     print()
             
-    #print("\033[%d;%dH" % (0, 0)) # y, x
+    print("\033[%d;%dH" % (1, 1)) # y, x
 
     for j in range(y):
         for i in range(x):
@@ -97,43 +106,8 @@ def get_neighborhood(mapa, coord):
     return nb
 
 
-mapa, start, end = read_file('mapa10.txt')
-
-
 def busca_largura(mapa):
-    # Fronteira agora é uma lista normal do Python
-    fronteira = []
-    fronteira.append((start, [start])) 
-    
-    # set() é nativo do Python, não precisa importar nada!
-    visitados = set()
-    visitados.add(start)
-    
-    # loop do
-    while len(fronteira) > 0:
-        
-        # Remove o primeiro elemento da lista (índice 0)
-        atual, caminho = fronteira.pop(0)
-        
-        # Checa se chegamos no final
-        if atual == end:
-            return caminho
-            
-        # Expande a fronteira buscando os vizinhos
-        vizinhos = get_neighborhood(mapa, atual)
-        
-        for vizinho in vizinhos:
-            # Se ainda não pisamos neste vizinho...
-            if vizinho not in visitados:
-                visitados.add(vizinho) # Marca como visitado
-                
-                # Cria a nova rota
-                novo_caminho = caminho + [vizinho]
-                
-                # Coloca o vizinho no final da lista
-                fronteira.append((vizinho, novo_caminho))
-                
-    return None
+	pass
 
 def busca_profundidade(mapa):
 	pass 
@@ -145,31 +119,190 @@ def manhattan_distance(_from, to):
 def busca_a_estrela(mapa):
 	pass
 
-def print_resultado(mapa, caminho):
-    print("\n=== Resultado da Busca em Largura ===\n")
+#busca_largura(mapa)
+def busca_largura(mapa, start_position, end_position):
+   
+    num_iteracoes = 0
     
-    # Transformamos a lista em um 'set' (conjunto) para a verificação ficar mais rápida
-    caminho_set = set(caminho)
+    visitados = []  
+    fronteira = []  
     
-    for j in range(y):
-        for i in range(x):
-            # Se a coordenada atual faz parte do caminho que o algoritmo encontrou...
-            if (i, j) in caminho_set:
-                # Se for Início (I) ou Fim (F), mantemos a letra original 
-                if mapa[j][i] == 'I' or mapa[j][i] == 'F':
-                    print(mapa[j][i], end='')
-                else:
-                    # Desenhamos o caminho com um bloco (ou troque por '*' se preferir)
-                    print('█', end='')
-            else:
-                # Se não faz parte do caminho, imprime o caractere original do mapa
-                print(mapa[j][i], end='')
-        print() # Quebra de linha ao final de cada linha do mapa
+    #fronteira ← InsereNaFila(FazNó(Problema[EstadoInicial]), fronteira)
+    fronteira.append(TreeNode(start_position,  0, 0))
+    
+    #do loop
+    while fronteira:
+        num_iteracoes += 1
+        #nó ← RemovePrimeiro(fronteira)
+        no_front = fronteira.pop(0)
+        distancia_atual = no_front.get_value_gx()
+        posicao_atual = no_front.get_coord()
+        visitados.append(posicao_atual)
+        
+        if exibe_mapa_execucao:
+            print_map(mapa, posicao_atual)
+            time.sleep(0.1)
+        
+        #if nó[Estado] for igual a Problema[EstadoFinal]:
+        if posicao_atual == end_position:
+            #return Solução(nó)
+            return no_front, num_iteracoes
+            
+        for viz in get_neighborhood(mapa, posicao_atual):
+            if viz not in visitados:
+                g_x = distancia_atual + get_value_from_map(mapa, viz)
+                #fronteira ← InsereNaFila(ExpandeFronteira(Problema, nó), fronteira)
+                no_child = TreeNode(viz, g_x, g_x)
+                no_child.set_parent(no_front)
+                fronteira.append(no_child)
 
-caminho_encontrado = busca_largura(mapa)
+                
+    return None
+
 
 #busca_profundidade(mapa)
-#busca_a_estrela(mapa)
+def busca_profundidade(mapa, start_position, end_position):
+    
+    num_iteracoes = 0
+    visitados = []  
+    fronteira = []  
+    
+    #fronteira ← InsereNaPilha(FazNó(Problema[EstadoInicial]), fronteira)
+    fronteira.append(TreeNode(start_position, 0, 0))
+    
+    #do loop
+    while fronteira:
+        num_iteracoes += 1
+        #nó ← RemovePrimeiro(fronteira)
+        no_front = fronteira.pop()
+        distancia_atual = no_front.get_value_gx()
+        posicao_atual = no_front.get_coord()
+        visitados.append(posicao_atual)
+        
+        if exibe_mapa_execucao:
+            print_map(mapa, posicao_atual)
+            time.sleep(0.1)
+        
+        #if nó[Estado] for igual a Problema[EstadoFinal]:
+        if posicao_atual == end_position:
+            #return Solução(nó)
+            return no_front, num_iteracoes
+            
+        for viz in get_neighborhood(mapa, posicao_atual):
+            if viz not in visitados:
+                g_x = distancia_atual + get_value_from_map(mapa, viz)
+                #fronteira ← InsereNaPilha(ExpandeFronteira(Problema, nó), fronteira)
+                no_child = TreeNode(viz, g_x, g_x)
+                no_child.set_parent(no_front)
+                fronteira.append(no_child)
+                
+    return None
 
-print_resultado(mapa, caminho_encontrado)
+def busca_a_estrela(mapa, start_position, end_position):
+       
+    num_iteracoes = 0
+    
+    visitados = []  
+    fronteira = PriorityQueue()
+    
+    #fronteira ← InsereNaFila(FazNó(Problema[EstadoInicial]), fronteira)
+    fronteira.put(TreeNode(start, manhattan_distance(start_position, end_position), 0))
+    
+    
+    #do loop
+    while fronteira:
+        num_iteracoes += 1
+        #nó ← RemovePrimeiro(fronteira)
+        no_front = fronteira.get()
+        distancia_atual = no_front.get_value_gx()
+        posicao_atual = no_front.get_coord()
+        visitados.append(posicao_atual)
+        
+        if exibe_mapa_execucao:
+            print_map(mapa, posicao_atual)
+            time.sleep(0.1)
+        
+        #if nó[Estado] for igual a Problema[EstadoFinal]:
+        if posicao_atual == end_position:
+            #return Solução(nó)
+            return no_front, num_iteracoes
+            
+        for viz in get_neighborhood(mapa, posicao_atual):
+            if viz not in visitados:
+                g_x = distancia_atual + get_value_from_map(mapa, viz)
+                h_x = manhattan_distance(viz, end_position)
+                f_x = g_x + h_x
+                #fronteira ← InsereNaFila(ExpandeFronteira(Problema, nó), fronteira)
+                no_child = TreeNode(viz, f_x, g_x)
+                no_child.set_parent(no_front)
+                fronteira.put(no_child)
+                
+    return None
+
+
+
+def calc_solution_map(mapa, node):
+        
+    sol = []
+    
+    while node.get_parent() != None:           
+        sol.append(node)
+        node = node.get_parent()    
+    sol.append(node)  # o inicio não tem pai mais precisa ser incluido
+
+    while sol:
+            
+        no_arv = sol.pop() 
+        coord = no_arv.get_coord()
+        
+        #substitui caracter nas coordenadas como se fosse mapa[coord[1]][coord[0]] = '█'
+        mapa[coord[1]] = mapa[coord[1]][:coord[0]] + '█' + mapa[coord[1]][coord[0]+1:]
+    return mapa
+
+def print_solution_map(mapa, node):
+    print_map(mapa, calc_solution_map(mapa, node))
+    
+
+#### COMECA AQUI
+
+exibe_mapa_execucao = False #exibe mapa durante execucao
+nome_mapa = 'mapa10.txt'
+#nome_mapa = 'mapa20.txt'
+#nome_mapa = 'mapa30.txt'
+
+#Selecione Algoritmo
+#alg = 0 # largura
+#alg = 1 # profundidade
+#alg = 2 # A Estrela
+alg = 0
+
+############################
+clear_screen()
+
+mapa, start, end = read_file(nome_mapa)
+
+start_time = time.time()
+
+
+if alg == 0:
+    sol, num_iteracoes = busca_largura(mapa, start, end)
+elif alg == 1:
+    sol, num_iteracoes = busca_profundidade(mapa, start, end)
+elif alg == 2:
+    sol, num_iteracoes = busca_a_estrela(mapa, start, end)
+
+end_time = time.time()
+
+print_solution_map(mapa, sol)
+
+if alg == 0:
+    print("Busca em Largura")
+elif alg == 1:
+    print("Busca em Profundidade")
+elif alg == 2:
+    print("Busca A Estrela")
+
+print(f"> Tempo de execução: {(end_time-start_time)*10**3:.03f}ms")
+print(sol.get_coord(), sol.get_value_gx(), num_iteracoes)
+
 
