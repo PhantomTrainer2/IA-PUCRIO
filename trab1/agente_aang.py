@@ -34,7 +34,7 @@ PERSONAGENS = [
     ("Momo",   0.7),
 ]
 
-#Momo é deixado vivo pois é o personagem mais lento (falta implementar)
+# Momo é deixado vivo pois é o personagem mais lento (falta implementar)
 
 # 32 checkpoints na ordem da jornada
 CHECKPOINTS_ORDEM = [
@@ -398,16 +398,17 @@ def pre_renderizar_mapa(mapa: list) -> pygame.Surface:
 
 
 def executar_visualizacao(mapa: list, rota_completa: list,
-                           indices_checkpoints: dict, custo_final: float):
+                           indices_checkpoints: dict, custo_final: float, 
+                           tempos_por_etapa: list): # <-- Recebe os tempos das etapas calculados pelo SA
     """
     Loop principal do Pygame.
     Anima o avatar percorrendo a rota_completa passo a passo,
     pausa brevemente ao atingir cada checkpoint, e exibe um HUD com
-    o contador de checkpoints e o custo total.
+    o contador de checkpoints e o custo acumulado em tempo real.
     """
     pygame.init()
     fonte_titulo = pygame.font.SysFont('Arial', 20, bold=True)
-    fonte_info   = pygame.font.SysFont('Arial', 16)
+    fonte_info   = pygame.font.SysFont('Arial', 16, bold=True)
 
     linhas_mapa  = len(mapa)
     colunas_mapa = len(mapa[0])
@@ -415,12 +416,10 @@ def executar_visualizacao(mapa: list, rota_completa: list,
     altura_tela  = linhas_mapa  * TAMANHO_CELULA
 
     tela = pygame.display.set_mode((largura_tela, altura_tela))
-    pygame.display.set_caption(f"Jornada de Aang — Custo Total: {custo_final:.6f} min")
+    pygame.display.set_caption(f"Jornada de Aang — Custo Total: {custo_final:.2f} min")
 
-    # Superfície estática do mapa (só renderizada uma vez)
     sup_mapa = pre_renderizar_mapa(mapa)
 
-    # Superfície do rastro com suporte a transparência (alpha)
     sup_rastro = pygame.Surface((largura_tela, altura_tela), pygame.SRCALPHA)
     sup_rastro.fill((0, 0, 0, 0))
 
@@ -430,6 +429,9 @@ def executar_visualizacao(mapa: list, rota_completa: list,
     total_passos      = len(rota_completa)
     ckpts_visitados   = set()
     etapas_concluidas = 0
+    
+    # Alterado para float para comportar os decimais das etapas com precisão
+    custo_acumulado   = 0.0  
 
     while rodando:
         for evento in pygame.event.get():
@@ -441,7 +443,6 @@ def executar_visualizacao(mapa: list, rota_completa: list,
         if passo_atual < total_passos:
             i_pos, j_pos = rota_completa[passo_atual]
 
-            # Pinta a célula atual no rastro persistente
             pygame.draw.rect(
                 sup_rastro,
                 (*CORES['CAMINHO'], 210),
@@ -449,20 +450,31 @@ def executar_visualizacao(mapa: list, rota_completa: list,
                             TAMANHO_CELULA, TAMANHO_CELULA)
             )
 
-            # Verifica se chegou em algum checkpoint neste passo
+            # 1. Soma o custo do terreno (A*) ao dar um passo
+            if passo_atual > 0:
+                terreno = mapa[i_pos][j_pos]
+                custo_passo = CUSTOS_TERRENO.get(terreno, 1)
+                custo_acumulado += custo_passo
+
+            # 2. Verifica se chegou no Checkpoint final de uma etapa
             for char, idx in indices_checkpoints.items():
                 if passo_atual == idx and char not in ckpts_visitados:
                     ckpts_visitados.add(char)
+                    
+                    # --- NOVA LÓGICA: SOMA O CUSTO DA ETAPA (SA) ---
+                    # Se houver uma etapa correspondente, soma o tempo calculado para ela
+                    if etapas_concluidas < len(tempos_por_etapa):
+                        custo_acumulado += tempos_por_etapa[etapas_concluidas]
+                    # -----------------------------------------------
+                    
                     etapas_concluidas += 1
                     chegou_em_checkpoint = True
 
             passo_atual += 1
 
-        # --- Composição das camadas ---
         tela.blit(sup_mapa,   (0, 0))
         tela.blit(sup_rastro, (0, 0))
 
-        # Avatar na posição atual
         if passo_atual > 0:
             idx_atual = min(passo_atual - 1, total_passos - 1)
             i_av, j_av = rota_completa[idx_atual]
@@ -472,18 +484,27 @@ def executar_visualizacao(mapa: list, rota_completa: list,
                       if chegou_em_checkpoint else CORES['AVATAR'])
             pygame.draw.circle(tela, cor_av, (cx, cy), TAMANHO_CELULA + 1)
 
-        # --- HUD ---
         txt_etapas = fonte_titulo.render(
             f"Checkpoints: {etapas_concluidas} / 31", True, (255, 255, 255)
         )
-        txt_custo = fonte_info.render(
-            f"Custo total: {custo_final:.6f} min", True, (210, 210, 210)
-        )
+        
+        # UI Condicional: Caminho em progresso vs Custo Final
+        if passo_atual < total_passos:
+            # Texto atualizado para "Custo Acumulado" e formatado com duas casas decimais
+            txt_custo = fonte_info.render(
+                f"Custo Acumulado: {custo_acumulado:.2f} min", True, (255, 255, 255)
+            )
+        else:
+            txt_custo = fonte_info.render(
+                f"CUSTO FINAL: {custo_final:.2f} min", True, (100, 255, 120)
+            )
+
         hud_w = max(txt_etapas.get_width(), txt_custo.get_width()) + 24
         hud_h = txt_etapas.get_height() + txt_custo.get_height() + 16
         hud   = pygame.Surface((hud_w, hud_h))
         hud.fill((0, 0, 0))
         hud.set_alpha(180)
+        
         tela.blit(hud,        (10, 10))
         tela.blit(txt_etapas, (22, 15))
         tela.blit(txt_custo,  (22, 15 + txt_etapas.get_height() + 5))
@@ -491,7 +512,7 @@ def executar_visualizacao(mapa: list, rota_completa: list,
         pygame.display.flip()
 
         if chegou_em_checkpoint:
-            pygame.time.delay(300)  # pausa breve ao atingir um checkpoint
+            pygame.time.delay(300)
 
         relogio.tick(60)
 
@@ -503,25 +524,17 @@ def executar_visualizacao(mapa: list, rota_completa: list,
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("       Jornada de Aang — Agente Inteligente (INF1771)")
+    print("      Jornada de Aang — Agente Inteligente (INF1771)")
     print("=" * 60)
 
-    # ------------------------------------------------------------------
-    # Fase 1: Carregar mapa
-    # ------------------------------------------------------------------
     print("\n[1/3] Carregando mapa...")
     mapa, checkpoints = carregar_mapa("MAPA_LENDA-AANG.txt")
     print(f"      Dimensões: {len(mapa)} x {len(mapa[0])}  |  "
           f"Checkpoints encontrados: {len(checkpoints)}")
 
-    # ------------------------------------------------------------------
-    # Fase 2: A* entre checkpoints consecutivos
-    # ------------------------------------------------------------------
     print("\n[2/3] Executando A* entre checkpoints...")
     tempo_viagem_total = 0
     rota_completa      = []
-    # Mapeia char do checkpoint → índice exato na rota_completa
-    # (usado para detectar chegadas durante a animação)
     indices_checkpoints = {}
 
     for i in range(len(CHECKPOINTS_ORDEM) - 1):
@@ -531,25 +544,27 @@ if __name__ == "__main__":
         custo, rota = a_star(mapa, checkpoints[origem_char], checkpoints[destino_char])
         tempo_viagem_total += custo
 
-        # Concatena as rotas evitando duplicar o ponto de junção
         if i == 0:
             rota_completa.extend(rota)
         else:
             rota_completa.extend(rota[1:])
 
-        # O checkpoint destino está sempre na última posição adicionada
         indices_checkpoints[destino_char] = len(rota_completa) - 1
-
         print(f"      {origem_char} → {destino_char}: {custo} min")
 
     print(f"\n      Tempo total de viagem (A*): {tempo_viagem_total} minutos")
 
-    # ------------------------------------------------------------------
-    # Fase 3: Simulated Annealing para atribuição de personagens
-    # ------------------------------------------------------------------
     print("\n[3/3] Otimizando atribuição de personagens (Simulated Annealing)...")
     tempo_etapas, esquema = resolver_etapas_simulated_annealing(DIFICULDADES, PERSONAGENS)
     exibir_resultado_etapas(esquema, PERSONAGENS, DIFICULDADES)
+
+    # --- NOVO: Extração dos tempos individuais por etapa gerados pelo SA ---
+    tempos_por_etapa = []
+    for i, grupo in enumerate(esquema):
+        D = DIFICULDADES[i]
+        A = sum(PERSONAGENS[c][1] for c in grupo)
+        tempos_por_etapa.append(D / A)
+    # -----------------------------------------------------------------------
 
     custo_final = tempo_viagem_total + tempo_etapas
 
@@ -562,7 +577,5 @@ if __name__ == "__main__":
     print("=" * 60)
     print("\nAbrindo visualização gráfica... (feche a janela para encerrar)\n")
 
-    # ------------------------------------------------------------------
-    # Fase 4: Visualização com Pygame
-    # ------------------------------------------------------------------
-    executar_visualizacao(mapa, rota_completa, indices_checkpoints, custo_final)
+    # Passamos a lista de tempos das etapas para a visualização gráfica
+    executar_visualizacao(mapa, rota_completa, indices_checkpoints, custo_final, tempos_por_etapa)
