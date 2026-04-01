@@ -34,6 +34,8 @@ PERSONAGENS = [
     ("Momo",   0.7),
 ]
 
+#Momo é deixado vivo pois é o personagem mais lento (falta implementar)
+
 # 32 checkpoints na ordem da jornada
 CHECKPOINTS_ORDEM = [
     '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
@@ -123,7 +125,7 @@ def a_star(mapa: list, inicio: tuple, objetivo: tuple):
     linhas, colunas = len(mapa), len(mapa[0])
     movimentos = [(-1, 0), (1, 0), (0, -1), (0, 1)]  # sem diagonal
 
-    # Heap: (f = g + h, g, posicao)
+    # Heap: (f = g + h, g, posicao) f = custo total estimado, g = custo acumulado até aqui, h = heurística
     fronteira = [(distancia_manhattan(inicio, objetivo), 0, inicio)]
     custo_ate = {inicio: 0}
     veio_de = {}
@@ -162,7 +164,7 @@ def a_star(mapa: list, inicio: tuple, objetivo: tuple):
     return float('inf'), []  # sem caminho
 
 # =====================================================================
-# 4. BUSCA LOCAL: SIMULATED ANNEALING
+# 4. BUSCA LOCAL: SIMULATED ANNEALING (SA) Meta-heurística para atribuição de personagens às etapas
 # =====================================================================
 
 def calcular_tempo_etapas(estado: list, dificuldades: list, personagens: list) -> float:
