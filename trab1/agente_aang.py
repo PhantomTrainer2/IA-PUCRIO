@@ -264,7 +264,7 @@ def resolver_etapas_simulated_annealing(dificuldades: list, personagens: list):
         tempo_atual = calcular_tempo_etapas(estado, dificuldades, personagens)
 
         melhor_local_tempo  = tempo_atual
-        melhor_local_estado = [list(e) for e in estado]
+        
         temperatura = T_INICIAL
 
         while temperatura > T_FINAL:
@@ -334,7 +334,6 @@ def resolver_etapas_simulated_annealing(dificuldades: list, personagens: list):
                     tempo_atual = tempo_viz
                     if tempo_atual < melhor_local_tempo:
                         melhor_local_tempo  = tempo_atual
-                        melhor_local_estado = [list(e) for e in estado]
                         if melhor_local_tempo < melhor_global_tempo:
                             melhor_global_tempo  = melhor_local_tempo
                             melhor_global_estado = [list(e) for e in estado]
