@@ -181,22 +181,17 @@ def calcular_tempo_etapas(estado: list, dificuldades: list, personagens: list) -
         tempo_total += dificuldades[i] / soma_agilidade
     return tempo_total
 
-
 def inicializar_estado_guloso(num_etapas: int, num_chars: int,
                                personagens: list, dificuldades: list):
     """
-    Cria um estado inicial de qualidade para o SA em dois passos:
-
-    Fase 1 — atribui 1 personagem por etapa:
-      Processa as etapas da mais difícil para a mais fácil, alocando sempre
-      o personagem mais ágil ainda disponível (com slots restantes).
-
-    Fase 2 — distribui os slots restantes por benefício marginal:
-      Usa um heap de prioridade para sempre adicionar o par (etapa, personagem)
-      que gera a maior redução de tempo, até esgotar todos os slots disponíveis.
+    Cria um estado inicial de qualidade para o SA em dois passos,
+    agora respeitando o limite global para que alguém sobreviva.
     """
     estado = [[] for _ in range(num_etapas)]
     usos = [0] * num_chars
+    
+    # NOVO: Limite máximo global para garantir que ao menos 1 personagem não gaste tudo
+    MAX_TOTAL_USOS = (num_chars * MAX_USOS_POR_PERSONAGEM) - 1
 
     # --- Fase 1: um personagem obrigatório por etapa ---
     ordem_dificuldade = sorted(range(num_etapas), key=lambda i: -dificuldades[i])
@@ -224,7 +219,8 @@ def inicializar_estado_guloso(num_etapas: int, num_chars: int,
             if c not in estado[i] and usos[c] < MAX_USOS_POR_PERSONAGEM:
                 heapq.heappush(heap_bm, (-beneficio_marginal(i, c), i, c))
 
-    while heap_bm:
+    # MODIFICADO: Só continua distribuindo se a soma global não atingir o limite de 55
+    while heap_bm and sum(usos) < MAX_TOTAL_USOS:
         neg_b, i, c = heapq.heappop(heap_bm)
         if c in estado[i] or usos[c] >= MAX_USOS_POR_PERSONAGEM:
             continue
@@ -244,18 +240,7 @@ def inicializar_estado_guloso(num_etapas: int, num_chars: int,
 
 def resolver_etapas_simulated_annealing(dificuldades: list, personagens: list):
     """
-    Simulated Annealing para minimizar o tempo total das etapas.
-    Cada personagem pode participar de no máximo MAX_USOS_POR_PERSONAGEM etapas.
-
-    Vizinhança inclui 4 movimentos:
-      1. MOVER  — transfere um personagem de uma etapa para outra
-      2. TROCAR — permuta personagens entre duas etapas (sem alterar contadores)
-      3. ADICIONAR — insere um personagem em uma etapa (se tiver slot)
-      4. REMOVER  — retira um personagem de uma etapa com mais de 1 participante
-
-    A temperatura inicial (500) é proporcional à magnitude dos custos;
-    o resfriamento geométrico (×0.95 a cada 300 avaliações) garante uma
-    exploração ampla nas fases iniciais e convergência suave ao final.
+    Simulated Annealing otimizando o limite máximo global de uso.
     """
     num_etapas = len(dificuldades)
     num_chars  = len(personagens)
@@ -265,6 +250,9 @@ def resolver_etapas_simulated_annealing(dificuldades: list, personagens: list):
     FATOR_RESFR      = 0.95
     ITER_POR_T       = 300
     NUM_TENTATIVAS   = 5
+    
+    # NOVO: Limite máximo global para validação de adições
+    MAX_TOTAL_USOS = (num_chars * MAX_USOS_POR_PERSONAGEM) - 1
 
     melhor_global_tempo = float('inf')
     melhor_global_estado = None
@@ -298,7 +286,6 @@ def resolver_etapas_simulated_annealing(dificuldades: list, personagens: list):
                     destino = random.choice(etapas_sem)
                     estado_viz[origem].remove(c)
                     estado_viz[destino].append(c)
-                    # usos_viz não muda (char apenas muda de etapa)
 
                 elif tipo_mov < 0.70:
                     # TROCAR: permuta um char entre duas etapas
@@ -311,10 +298,13 @@ def resolver_etapas_simulated_annealing(dificuldades: list, personagens: list):
                     c2 = random.choice(op_c2)
                     estado_viz[e1].remove(c1); estado_viz[e1].append(c2)
                     estado_viz[e2].remove(c2); estado_viz[e2].append(c1)
-                    # usos_viz não muda (troca simétrica)
 
                 elif tipo_mov < 0.85:
-                    # ADICIONAR: insere um char em uma etapa (consome 1 slot)
+                    # ADICIONAR: insere um char em uma etapa
+                    # MODIFICADO: Verifica a restrição global antes de adicionar
+                    if sum(usos_viz) >= MAX_TOTAL_USOS:
+                        continue
+                        
                     c = random.randint(0, num_chars - 1)
                     if usos_viz[c] >= MAX_USOS_POR_PERSONAGEM:
                         continue
@@ -326,7 +316,7 @@ def resolver_etapas_simulated_annealing(dificuldades: list, personagens: list):
                     usos_viz[c] += 1
 
                 else:
-                    # REMOVER: retira um char de uma etapa com mais de 1 participante
+                    # REMOVER: retira um char de uma etapa
                     candidatas = [i for i in range(num_etapas) if len(estado_viz[i]) > 1]
                     if not candidatas:
                         continue
@@ -338,7 +328,6 @@ def resolver_etapas_simulated_annealing(dificuldades: list, personagens: list):
                 tempo_viz = calcular_tempo_etapas(estado_viz, dificuldades, personagens)
                 delta = tempo_viz - tempo_atual
 
-                # Critério de aceitação de Metropolis
                 if delta < 0 or random.random() < math.exp(-delta / temperatura):
                     estado     = estado_viz
                     usos       = usos_viz
