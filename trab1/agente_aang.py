@@ -34,7 +34,7 @@ PERSONAGENS = [
     ("Momo",   0.7),
 ]
 
-# Momo é deixado vivo pois é o personagem mais lento (falta implementar)
+# Momo é deixado vivo pois é o personagem mais lento.
 
 # 32 checkpoints na ordem da jornada
 CHECKPOINTS_ORDEM = [
@@ -107,6 +107,10 @@ def distancia_manhattan(p1: tuple, p2: tuple) -> int:
     Heurística admissível para o A*.
     O custo mínimo por célula é 1 (terreno plano), portanto a distância
     Manhattan nunca superestima o custo real → heurística consistente.
+    Entrada:
+        - p1, p2: tuplas (linha, coluna) representando posições no mapa
+    Retorna:
+        - distância Manhattan entre p1 e p2
     """
     return abs(p1[0] - p2[0]) + abs(p1[1] - p2[1])
 
@@ -117,10 +121,13 @@ def a_star(mapa: list, inicio: tuple, objetivo: tuple):
 
     Células de checkpoint são tratadas como terreno plano (custo 1) para
     fins de passagem — elas marcam posições, não alteram o custo de terreno.
-
+    Entrada:
+        - mapa (list[list[str]]): matriz do mapa lida do arquivo
+        - inicio (tuple): coordenadas (linha, coluna) do checkpoint de início
+        - objetivo (tuple): coordenadas (linha, coluna) do checkpoint de destino
     Retorna:
-      - custo_total (int): custo acumulado do caminho ótimo
-      - caminho (list[tuple]): lista de posições de 'inicio' até 'objetivo'
+        - custo_total (int): custo acumulado do caminho ótimo
+        - caminho (list[tuple]): lista de posições de 'inicio' até 'objetivo'
     """
     linhas, colunas = len(mapa), len(mapa[0])
     movimentos = [(-1, 0), (1, 0), (0, -1), (0, 1)]  # sem diagonal
@@ -172,6 +179,12 @@ def calcular_tempo_etapas(estado: list, dificuldades: list, personagens: list) -
     Dado um estado (lista de listas de índices de personagens por etapa),
     calcula o tempo total das etapas ativas:
         T = Σ Dificuldade_i / Σ Agilidade_j  (para j no grupo da etapa i)
+    Entrada:
+    - estado: list[list[int]] → cada sublista contém os índices dos personagens alocados para aquela etapa
+    - dificuldades: list[float] → dificuldade de cada etapa (tamanho 31)
+    - personagens: list[tuple] → lista de tuplas (nome, agilidade) dos personagens
+    Retorna:
+    - tempo_total (float): tempo total calculado para o estado fornecido
     """
     tempo_total = 0.0
     for i, grupo in enumerate(estado):
@@ -185,12 +198,20 @@ def inicializar_estado_guloso(num_etapas: int, num_chars: int,
                                personagens: list, dificuldades: list):
     """
     Cria um estado inicial de qualidade para o SA em dois passos,
-    agora respeitando o limite global para que alguém sobreviva.
+    respeitando o limite global para que alguém sobreviva.
+    Entrada:
+        - num_etapas: int → número total de etapas (31)
+        - num_chars: int → número total de personagens (7)
+        - personagens: list[tuple] → lista de tuplas (nome, agilidade)
+        - dificuldades: list[float] → dificuldade de cada etapa (tamanho 31)
+    Retorna:
+        - estado: list[list[int]] → cada sublista contém os índices dos personagens alocados para aquela etapa
+        - usos: list[int] → contagem de quantas vezes cada personagem foi alocado
     """
     estado = [[] for _ in range(num_etapas)]
     usos = [0] * num_chars
     
-    # NOVO: Limite máximo global para garantir que ao menos 1 personagem não gaste tudo
+    #Limite máximo global para garantir que ao menos 1 personagem não gaste tudo
     MAX_TOTAL_USOS = (num_chars * MAX_USOS_POR_PERSONAGEM) - 1
 
     # --- Fase 1: um personagem obrigatório por etapa ---
@@ -207,6 +228,15 @@ def inicializar_estado_guloso(num_etapas: int, num_chars: int,
 
     # --- Fase 2: slots restantes por máximo benefício marginal ---
     def beneficio_marginal(i, c):
+        """
+        Função interna.
+        Calcula o benefício marginal de adicionar o personagem c à etapa i.
+        Entrada:
+            - i: índice da etapa (0 a 30)
+            - c: índice do personagem (0 a 6)
+        Retorna:
+            - benefício marginal (float): redução no tempo da etapa i se c for adicionado
+        """
         D = dificuldades[i]
         A = sum(personagens[x][1] for x in estado[i])
         if A == 0:
@@ -219,7 +249,7 @@ def inicializar_estado_guloso(num_etapas: int, num_chars: int,
             if c not in estado[i] and usos[c] < MAX_USOS_POR_PERSONAGEM:
                 heapq.heappush(heap_bm, (-beneficio_marginal(i, c), i, c))
 
-    # MODIFICADO: Só continua distribuindo se a soma global não atingir o limite de 55
+    # Só continua distribuindo se a soma global não atingir o limite de 55
     while heap_bm and sum(usos) < MAX_TOTAL_USOS:
         neg_b, i, c = heapq.heappop(heap_bm)
         if c in estado[i] or usos[c] >= MAX_USOS_POR_PERSONAGEM:
@@ -241,6 +271,12 @@ def inicializar_estado_guloso(num_etapas: int, num_chars: int,
 def resolver_etapas_simulated_annealing(dificuldades: list, personagens: list):
     """
     Simulated Annealing otimizando o limite máximo global de uso.
+    Entrada:
+        - dificuldades: list[float] → dificuldade de cada etapa (tamanho 31)
+        - personagens: list[tuple] → lista de tuplas (nome, agilidade)
+    Retorna:
+        - melhor_global_tempo (float): tempo total das etapas para o melhor estado encontrado
+        - melhor_global_estado (list[list[int]]): estado correspondente ao melhor tempo encontrado
     """
     num_etapas = len(dificuldades)
     num_chars  = len(personagens)
@@ -251,7 +287,7 @@ def resolver_etapas_simulated_annealing(dificuldades: list, personagens: list):
     ITER_POR_T       = 300
     NUM_TENTATIVAS   = 5
     
-    # NOVO: Limite máximo global para validação de adições
+    # Limite máximo global para validação de adições
     MAX_TOTAL_USOS = (num_chars * MAX_USOS_POR_PERSONAGEM) - 1
 
     melhor_global_tempo = float('inf')
@@ -274,7 +310,7 @@ def resolver_etapas_simulated_annealing(dificuldades: list, personagens: list):
                 tipo_mov   = random.random()
 
                 if tipo_mov < 0.35:
-                    # MOVER: transfere char de uma etapa para outra
+                    # transfere char de uma etapa para outra
                     c = random.randint(0, num_chars - 1)
                     etapas_com  = [i for i in range(num_etapas) if c in estado_viz[i]]
                     etapas_sem  = [i for i in range(num_etapas) if c not in estado_viz[i]]
@@ -288,7 +324,7 @@ def resolver_etapas_simulated_annealing(dificuldades: list, personagens: list):
                     estado_viz[destino].append(c)
 
                 elif tipo_mov < 0.70:
-                    # TROCAR: permuta um char entre duas etapas
+                    # permuta um char entre duas etapas
                     e1, e2 = random.sample(range(num_etapas), 2)
                     op_c1 = [c for c in estado_viz[e1] if c not in estado_viz[e2]]
                     op_c2 = [c for c in estado_viz[e2] if c not in estado_viz[e1]]
@@ -300,8 +336,8 @@ def resolver_etapas_simulated_annealing(dificuldades: list, personagens: list):
                     estado_viz[e2].remove(c2); estado_viz[e2].append(c1)
 
                 elif tipo_mov < 0.85:
-                    # ADICIONAR: insere um char em uma etapa
-                    # MODIFICADO: Verifica a restrição global antes de adicionar
+                    # Insere um char em uma etapa
+                    # Verifica a restrição global antes de adicionar
                     if sum(usos_viz) >= MAX_TOTAL_USOS:
                         continue
                         
@@ -316,7 +352,7 @@ def resolver_etapas_simulated_annealing(dificuldades: list, personagens: list):
                     usos_viz[c] += 1
 
                 else:
-                    # REMOVER: retira um char de uma etapa
+                    # retira um char de uma etapa
                     candidatas = [i for i in range(num_etapas) if len(estado_viz[i]) > 1]
                     if not candidatas:
                         continue
@@ -351,7 +387,15 @@ def resolver_etapas_simulated_annealing(dificuldades: list, personagens: list):
 # =====================================================================
 
 def exibir_resultado_etapas(esquema: list, personagens: list, dificuldades: list):
-    """Imprime a tabela de atribuição de personagens por etapa."""
+    """
+    Imprime a tabela de atribuição de personagens por etapa.
+    Entrada:
+        - esquema: list[list[int]] → cada sublista contém os índices dos personagens alocados para aquela etapa
+        - personagens: list[tuple] → lista de tuplas (nome, agilidade)
+        - dificuldades: list[float] → dificuldade de cada etapa
+    Retorna:
+        - None (imprime a tabela formatada no terminal)
+    """
     print(f"\n  {'Etapa':>5} | {'Dif.':>4} | {'Personagens':<36} | {'Agil.':>5} | {'Tempo':>8}")
     print("  " + "-" * 72)
     usos_totais = {p[0]: 0 for p in personagens}
@@ -378,6 +422,10 @@ def pre_renderizar_mapa(mapa: list) -> pygame.Surface:
     """
     Pré-renderiza todo o bioma do mapa em uma Surface estática.
     Isso evita redesenhar cada célula a cada frame, reduzindo o custo de CPU.
+    Entrada:
+        - mapa: list[list[str]] → matriz do mapa lida do arquivo
+    Retorna:
+        - superficie: pygame.Surface → superfície pré-renderizada do mapa
     """
     linhas   = len(mapa)
     colunas  = len(mapa[0])
@@ -405,6 +453,14 @@ def executar_visualizacao(mapa: list, rota_completa: list,
     Anima o avatar percorrendo a rota_completa passo a passo,
     pausa brevemente ao atingir cada checkpoint, e exibe um HUD com
     o contador de checkpoints e o custo acumulado em tempo real.
+    Entrada:
+        - mapa: list[list[str]] → matriz do mapa lida do arquivo
+        - rota_completa: list[tuple] → lista de posições (linha, coluna)
+        - indices_checkpoints: dict → dicionário com os índices dos checkpoints
+        - custo_final: float → custo total da rota
+        - tempos_por_etapa: list[float] → tempos calculados para cada etapa
+    Retorna:
+        - None (inicia a janela gráfica e executa a animação)
     """
     pygame.init()
     fonte_titulo = pygame.font.SysFont('Arial', 20, bold=True)
@@ -554,7 +610,7 @@ if __name__ == "__main__":
 
     print(f"\n      Tempo total de viagem (A*): {tempo_viagem_total} minutos")
 
-    print("\n[3/3] Otimizando atribuição de personagens (Simulated Annealing)...")
+    print("\n[3/3] Otimizando atribuição de personagens (Simulated Annealing (SA))...")
     tempo_etapas, esquema = resolver_etapas_simulated_annealing(DIFICULDADES, PERSONAGENS)
     exibir_resultado_etapas(esquema, PERSONAGENS, DIFICULDADES)
 
