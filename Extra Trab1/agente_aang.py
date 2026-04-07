@@ -10,9 +10,8 @@ except ImportError:
     print("Por favor, abra o terminal e digite: pip install pygame")
     sys.exit(1)
 
-# =====================================================================
-# 1. CONFIGURAÇÕES DO AMBIENTE E DADOS
-# =====================================================================
+
+# Custo dos Tiles
 
 CUSTOS_TERRENO = {
     '.': 1,    # Plano
@@ -23,7 +22,7 @@ CUSTOS_TERRENO = {
     'M': 200,  # Montanhoso
 }
 
-# Personagens e agilidades conforme o PDF
+# Personagens e agilidades
 PERSONAGENS = [
     ("Aang",   1.8),
     ("Zuko",   1.6),
@@ -34,18 +33,15 @@ PERSONAGENS = [
     ("Momo",   0.7),
 ]
 
-# Momo é deixado vivo pois é o personagem mais lento.
 
-# 32 checkpoints na ordem da jornada
+# 32 checkpoints representando as tarefas
 CHECKPOINTS_ORDEM = [
     '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
     'B', 'C', 'D', 'E', 'G', 'H', 'I', 'J', 'K', 'L',
     'N', 'O', 'P', 'Q', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'
 ]
 
-# 31 etapas com dificuldade (etapas 1 a 31), conforme a Tabela 1 do PDF.
-# Cada valor corresponde ao segmento entre checkpoints consecutivos:
-#   0→1 (etapa 1, dif. 10), 1→2 (etapa 2, dif. 20), ..., Y→Z (etapa 31, dif. 310)
+# 31 etapas com dificuldade.
 DIFICULDADES = [
      10,  20,  30,  40,  50,  60,  70,  80,  90, 100,
     110, 120, 130, 140, 150, 160, 170, 180, 190, 200,
@@ -54,9 +50,9 @@ DIFICULDADES = [
 ]
 
 MAX_USOS_POR_PERSONAGEM = 8
-NUM_ETAPAS_ATIVAS = len(DIFICULDADES)  # 31
+NUM_ETAPAS_ATIVAS = len(DIFICULDADES) 
 
-# Configurações visuais (Pygame)
+# Configurações Pygame
 TAMANHO_CELULA = 4  # pixels por célula da matriz
 
 CORES = {
@@ -67,15 +63,13 @@ CORES = {
     'A': (30,  144, 255),         # Água: azul
     'M': (139, 69,  19),          # Montanhoso: marrom
     'CHECKPOINT':         (255, 80,  80),   # Checkpoint: vermelho
-    'CAMINHO':            (255, 215, 0),    # Rastro: dourado
+    'CAMINHO':            (255, 215, 0),    # Rastro: amarelo
     'AVATAR':             (255, 50,  50),   # Avatar em movimento: vermelho
     'CHECKPOINT_ATINGIDO':(100, 255, 120),  # Avatar ao chegar: verde claro
 }
 
-# =====================================================================
-# 2. CARREGAMENTO DO MAPA
-# =====================================================================
 
+#Carregar Mapa
 def carregar_mapa(caminho_arquivo: str):
     """
     Lê o arquivo TXT e retorna:

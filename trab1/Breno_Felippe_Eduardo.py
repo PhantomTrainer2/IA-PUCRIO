@@ -20,10 +20,7 @@ except ImportError:
     PULP_DISPONIVEL = False
 
 
-# =====================================================================
-# 1. CONFIGURACOES DO AMBIENTE E DADOS
-# =====================================================================
-
+# Custo de cada tile
 CUSTOS_TERRENO = {
     ".": 1,
     "R": 5,
@@ -33,6 +30,7 @@ CUSTOS_TERRENO = {
     "M": 200,
 }
 
+# Personagem e agilidade
 PERSONAGENS = [
     ("Aang", 1.8),
     ("Zuko", 1.6),
@@ -43,12 +41,14 @@ PERSONAGENS = [
     ("Momo", 0.7),
 ]
 
+# Checkpoints de onde as etapas são realizadas no mapa
 CHECKPOINTS_ORDEM = [
     "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
     "B", "C", "D", "E", "G", "H", "I", "J", "K", "L",
     "N", "O", "P", "Q", "S", "T", "U", "V", "W", "X", "Y", "Z",
 ]
 
+# Dificuldade de cada Etapa
 DIFICULDADES = [
      10,  20,  30,  40,  50,  60,  70,  80,  90, 100,
     110, 120, 130, 140, 150, 160, 170, 180, 190, 200,
@@ -56,8 +56,11 @@ DIFICULDADES = [
     310,
 ]
 
+
 MAX_USOS_POR_PERSONAGEM = 8
 NUM_ETAPAS_ATIVAS = len(DIFICULDADES)
+
+# Configuração pygame
 TAMANHO_CELULA = 4
 
 CORES = {
@@ -77,10 +80,8 @@ MOVIMENTOS_CARDINAIS = [(-1, 0), (1, 0), (0, -1), (0, 1)]
 MAPA_ARQUIVO = Path(__file__).resolve().with_name("MAPA_LENDA-AANG.txt")
 
 
-# =====================================================================
-# 2. CARREGAMENTO DO MAPA
-# =====================================================================
 
+# Carregar o mapa
 def carregar_mapa(caminho_arquivo: str | Path):
     with open(caminho_arquivo, "r", encoding="utf-8") as arquivo:
         linhas = arquivo.read().splitlines()
@@ -99,14 +100,12 @@ def carregar_mapa(caminho_arquivo: str | Path):
     return mapa, posicoes_checkpoints
 
 
-# =====================================================================
-# 3. BUSCA HEURISTICA: A*
-# =====================================================================
 
+# Cálculo da menor distância possível.
 def distancia_manhattan(p1: tuple[int, int], p2: tuple[int, int]) -> int:
     return abs(p1[0] - p2[0]) + abs(p1[1] - p2[1])
 
-
+# Busca A*
 def a_star(mapa: list, inicio: tuple[int, int], objetivo: tuple[int, int]):
     linhas, colunas = len(mapa), len(mapa[0])
     fronteira = [(distancia_manhattan(inicio, objetivo), 0, inicio)]
@@ -143,7 +142,7 @@ def a_star(mapa: list, inicio: tuple[int, int], objetivo: tuple[int, int]):
 
     return float("inf"), []
 
-
+# Uso de Djikstra para comparação em relação a heuristica.
 def dijkstra_custo(mapa: list, inicio: tuple[int, int], objetivo: tuple[int, int]) -> float:
     linhas, colunas = len(mapa), len(mapa[0])
     distancias = {inicio: 0}
@@ -169,7 +168,7 @@ def dijkstra_custo(mapa: list, inicio: tuple[int, int], objetivo: tuple[int, int
 
     return float("inf")
 
-
+# Impressão de um relatório para verificar se a rota encontrada pelo A* é de fato ótima. 
 def verificar_otimalidade_rota(mapa: list, checkpoints: dict):
     relatorio = []
     custo_total_a_star = 0
@@ -205,9 +204,7 @@ def verificar_otimalidade_rota(mapa: list, checkpoints: dict):
     }
 
 
-# =====================================================================
-# 4. SOLUCAO EXATA DAS ETAPAS
-# =====================================================================
+# Cálculo das Etapas
 
 def calcular_tempo_etapas(estado: list, dificuldades: list, personagens: list) -> float:
     tempo_total = 0.0
