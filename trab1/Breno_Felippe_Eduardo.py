@@ -1,90 +1,87 @@
+#Breno Pinheiro Gallo de Sá - 2110183
+#Felippe Petrasso Fonseca Hübner - 210870
+#
+
 import heapq
-import itertools
 import math
+import random
 import sys
-from functools import lru_cache
-from pathlib import Path
 
 try:
     import pygame
 except ImportError:
-    print("ERRO: a biblioteca 'pygame' nao esta instalada.")
+    print("ERRO: A biblioteca 'pygame' não está instalada.")
     print("Por favor, abra o terminal e digite: pip install pygame")
     sys.exit(1)
 
-try:
-    import pulp
-    PULP_DISPONIVEL = True
-except ImportError:
-    pulp = None
-    PULP_DISPONIVEL = False
 
+# Custo dos Tiles
 
-# Custo de cada tile
 CUSTOS_TERRENO = {
-    ".": 1,
-    "R": 5,
-    "F": 10,
-    "V": 10,
-    "A": 15,
-    "M": 200,
+    '.': 1,    # Plano
+    'R': 5,    # Rochoso
+    'F': 10,   # Floresta (caractere usado no arquivo TXT)
+    'V': 10,   # Floresta (conforme descrição do PDF)
+    'A': 15,   # Água
+    'M': 200,  # Montanhoso
 }
 
-# Personagem e agilidade
+# Personagens e agilidades
 PERSONAGENS = [
-    ("Aang", 1.8),
-    ("Zuko", 1.6),
-    ("Toph", 1.6),
+    ("Aang",   1.8),
+    ("Zuko",   1.6),
+    ("Toph",   1.6),
     ("Katara", 1.6),
-    ("Sokka", 1.4),
-    ("Appa", 0.9),
-    ("Momo", 0.7),
+    ("Sokka",  1.4),
+    ("Appa",   0.9),
+    ("Momo",   0.7),
 ]
 
-# Checkpoints de onde as etapas são realizadas no mapa
+
+# 32 checkpoints representando as tarefas
 CHECKPOINTS_ORDEM = [
-    "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
-    "B", "C", "D", "E", "G", "H", "I", "J", "K", "L",
-    "N", "O", "P", "Q", "S", "T", "U", "V", "W", "X", "Y", "Z",
+    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+    'B', 'C', 'D', 'E', 'G', 'H', 'I', 'J', 'K', 'L',
+    'N', 'O', 'P', 'Q', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'
 ]
 
-# Dificuldade de cada Etapa
+# 31 etapas com dificuldade.
 DIFICULDADES = [
      10,  20,  30,  40,  50,  60,  70,  80,  90, 100,
     110, 120, 130, 140, 150, 160, 170, 180, 190, 200,
     210, 220, 230, 240, 250, 260, 270, 280, 290, 300,
-    310,
+    310
 ]
 
-
 MAX_USOS_POR_PERSONAGEM = 8
-NUM_ETAPAS_ATIVAS = len(DIFICULDADES)
+NUM_ETAPAS_ATIVAS = len(DIFICULDADES) 
 
-# Configuração pygame
-TAMANHO_CELULA = 4
+# Configurações Pygame
+TAMANHO_CELULA = 4  # pixels por célula da matriz
 
 CORES = {
-    ".": (240, 240, 240),
-    "R": (139, 137, 137),
-    "F": (34, 139, 34),
-    "V": (34, 139, 34),
-    "A": (30, 144, 255),
-    "M": (139, 69, 19),
-    "CHECKPOINT": (255, 80, 80),
-    "CAMINHO": (255, 215, 0),
-    "AVATAR": (255, 50, 50),
-    "CHECKPOINT_ATINGIDO": (100, 255, 120),
+    '.': (240, 240, 240),         # Plano: branco
+    'R': (139, 137, 137),         # Rochoso: cinza
+    'F': (34,  139, 34),          # Floresta: verde
+    'V': (34,  139, 34),          # Floresta: verde
+    'A': (30,  144, 255),         # Água: azul
+    'M': (139, 69,  19),          # Montanhoso: marrom
+    'CHECKPOINT':         (255, 80,  80),   # Checkpoint: vermelho
+    'CAMINHO':            (255, 215, 0),    # Rastro: amarelo
+    'AVATAR':             (255, 50,  50),   # Avatar em movimento: vermelho
+    'CHECKPOINT_ATINGIDO':(100, 255, 120),  # Avatar ao chegar: verde claro
 }
 
-MOVIMENTOS_CARDINAIS = [(-1, 0), (1, 0), (0, -1), (0, 1)]
-MAPA_ARQUIVO = Path(__file__).resolve().with_name("MAPA_LENDA-AANG.txt")
 
-
-
-# Carregar o mapa
-def carregar_mapa(caminho_arquivo: str | Path):
-    with open(caminho_arquivo, "r", encoding="utf-8") as arquivo:
-        linhas = arquivo.read().splitlines()
+#Carregar Mapa
+def carregar_mapa(caminho_arquivo: str):
+    """
+    Lê o arquivo TXT e retorna:
+      - mapa: lista de listas de caracteres (82 x 300)
+      - posicoes_checkpoints: dict {char -> (linha, coluna)}
+    """
+    with open(caminho_arquivo, 'r', encoding='utf-8') as f:
+        linhas = f.read().splitlines()
 
     mapa = []
     posicoes_checkpoints = {}
@@ -99,15 +96,41 @@ def carregar_mapa(caminho_arquivo: str | Path):
 
     return mapa, posicoes_checkpoints
 
+# =====================================================================
+# 3. BUSCA HEURÍSTICA: A*
+# =====================================================================
 
-
-# Cálculo da menor distância possível.
-def distancia_manhattan(p1: tuple[int, int], p2: tuple[int, int]) -> int:
+def distancia_manhattan(p1: tuple, p2: tuple) -> int:
+    """
+    Heurística admissível para o A*.
+    O custo mínimo por célula é 1 (terreno plano), portanto a distância
+    Manhattan nunca superestima o custo real → heurística consistente.
+    Entrada:
+        - p1, p2: tuplas (linha, coluna) representando posições no mapa
+    Retorna:
+        - distância Manhattan entre p1 e p2
+    """
     return abs(p1[0] - p2[0]) + abs(p1[1] - p2[1])
 
-# Busca A*
-def a_star(mapa: list, inicio: tuple[int, int], objetivo: tuple[int, int]):
+
+def a_star(mapa: list, inicio: tuple, objetivo: tuple):
+    """
+    Algoritmo A* para menor custo entre dois pontos no mapa.
+
+    Células de checkpoint são tratadas como terreno plano (custo 1) para
+    fins de passagem — elas marcam posições, não alteram o custo de terreno.
+    Entrada:
+        - mapa (list[list[str]]): matriz do mapa lida do arquivo
+        - inicio (tuple): coordenadas (linha, coluna) do checkpoint de início
+        - objetivo (tuple): coordenadas (linha, coluna) do checkpoint de destino
+    Retorna:
+        - custo_total (int): custo acumulado do caminho ótimo
+        - caminho (list[tuple]): lista de posições de 'inicio' até 'objetivo'
+    """
     linhas, colunas = len(mapa), len(mapa[0])
+    movimentos = [(-1, 0), (1, 0), (0, -1), (0, 1)]  # sem diagonal
+
+    # Heap: (f = g + h, g, posicao) f = custo total estimado, g = custo acumulado até aqui, h = heurística
     fronteira = [(distancia_manhattan(inicio, objetivo), 0, inicio)]
     custo_ate = {inicio: 0}
     veio_de = {}
@@ -116,6 +139,7 @@ def a_star(mapa: list, inicio: tuple[int, int], objetivo: tuple[int, int]):
         _, g_atual, no_atual = heapq.heappop(fronteira)
 
         if no_atual == objetivo:
+            # Reconstrói o caminho completo incluindo início e fim
             caminho = []
             no = objetivo
             while no in veio_de:
@@ -124,402 +148,344 @@ def a_star(mapa: list, inicio: tuple[int, int], objetivo: tuple[int, int]):
             caminho.append(inicio)
             return g_atual, caminho[::-1]
 
-        if g_atual > custo_ate.get(no_atual, float("inf")):
+        # Descarta entradas desatualizadas do heap
+        if g_atual > custo_ate.get(no_atual, float('inf')):
             continue
 
-        for dx, dy in MOVIMENTOS_CARDINAIS:
+        for dx, dy in movimentos:
             nx, ny = no_atual[0] + dx, no_atual[1] + dy
             if 0 <= nx < linhas and 0 <= ny < colunas:
                 terreno = mapa[nx][ny]
+                # Checkpoints são passáveis com custo de terreno plano
                 custo_movimento = CUSTOS_TERRENO.get(terreno, 1)
                 novo_g = g_atual + custo_movimento
 
-                if novo_g < custo_ate.get((nx, ny), float("inf")):
+                if novo_g < custo_ate.get((nx, ny), float('inf')):
                     custo_ate[(nx, ny)] = novo_g
                     f = novo_g + distancia_manhattan((nx, ny), objetivo)
                     heapq.heappush(fronteira, (f, novo_g, (nx, ny)))
                     veio_de[(nx, ny)] = no_atual
 
-    return float("inf"), []
+    return float('inf'), []  # sem caminho
 
-# Uso de Djikstra para comparação em relação a heuristica.
-def dijkstra_custo(mapa: list, inicio: tuple[int, int], objetivo: tuple[int, int]) -> float:
-    linhas, colunas = len(mapa), len(mapa[0])
-    distancias = {inicio: 0}
-    fronteira = [(0, inicio)]
-
-    while fronteira:
-        g_atual, no_atual = heapq.heappop(fronteira)
-
-        if g_atual > distancias.get(no_atual, float("inf")):
-            continue
-
-        if no_atual == objetivo:
-            return g_atual
-
-        for dx, dy in MOVIMENTOS_CARDINAIS:
-            nx, ny = no_atual[0] + dx, no_atual[1] + dy
-            if 0 <= nx < linhas and 0 <= ny < colunas:
-                custo_movimento = CUSTOS_TERRENO.get(mapa[nx][ny], 1)
-                novo_g = g_atual + custo_movimento
-                if novo_g < distancias.get((nx, ny), float("inf")):
-                    distancias[(nx, ny)] = novo_g
-                    heapq.heappush(fronteira, (novo_g, (nx, ny)))
-
-    return float("inf")
-
-# Impressão de um relatório para verificar se a rota encontrada pelo A* é de fato ótima. 
-def verificar_otimalidade_rota(mapa: list, checkpoints: dict):
-    relatorio = []
-    custo_total_a_star = 0
-    custo_total_dijkstra = 0
-    rota_completa = []
-    indices_checkpoints = {}
-
-    for i in range(len(CHECKPOINTS_ORDEM) - 1):
-        origem_char = CHECKPOINTS_ORDEM[i]
-        destino_char = CHECKPOINTS_ORDEM[i + 1]
-
-        custo_a_star, rota = a_star(mapa, checkpoints[origem_char], checkpoints[destino_char])
-        custo_dijkstra = dijkstra_custo(mapa, checkpoints[origem_char], checkpoints[destino_char])
-
-        custo_total_a_star += custo_a_star
-        custo_total_dijkstra += custo_dijkstra
-
-        if i == 0:
-            rota_completa.extend(rota)
-        else:
-            rota_completa.extend(rota[1:])
-
-        indices_checkpoints[destino_char] = len(rota_completa) - 1
-        relatorio.append((origem_char, destino_char, custo_a_star, custo_dijkstra, math.isclose(custo_a_star, custo_dijkstra)))
-
-    return {
-        "relatorio": relatorio,
-        "custo_total_a_star": custo_total_a_star,
-        "custo_total_dijkstra": custo_total_dijkstra,
-        "rota_completa": rota_completa,
-        "indices_checkpoints": indices_checkpoints,
-        "rota_otima": all(item[4] for item in relatorio),
-    }
-
-
-# Cálculo das Etapas
+# =====================================================================
+# 4. BUSCA LOCAL: SIMULATED ANNEALING (SA) Meta-heurística para atribuição de personagens às etapas
+# =====================================================================
 
 def calcular_tempo_etapas(estado: list, dificuldades: list, personagens: list) -> float:
+    """
+    Dado um estado (lista de listas de índices de personagens por etapa),
+    calcula o tempo total das etapas ativas:
+        T = Σ Dificuldade_i / Σ Agilidade_j  (para j no grupo da etapa i)
+    Entrada:
+    - estado: list[list[int]] → cada sublista contém os índices dos personagens alocados para aquela etapa
+    - dificuldades: list[float] → dificuldade de cada etapa (tamanho 31)
+    - personagens: list[tuple] → lista de tuplas (nome, agilidade) dos personagens
+    Retorna:
+    - tempo_total (float): tempo total calculado para o estado fornecido
+    """
     tempo_total = 0.0
     for i, grupo in enumerate(estado):
         soma_agilidade = sum(personagens[c][1] for c in grupo)
         if soma_agilidade == 0:
-            return float("inf")
+            return float('inf')
         tempo_total += dificuldades[i] / soma_agilidade
     return tempo_total
 
+def inicializar_estado_guloso(num_etapas: int, num_chars: int,
+                               personagens: list, dificuldades: list):
+    """
+    Cria um estado inicial de qualidade para o SA em dois passos,
+    respeitando o limite global para que alguém sobreviva.
+    Entrada:
+        - num_etapas: int → número total de etapas (31)
+        - num_chars: int → número total de personagens (7)
+        - personagens: list[tuple] → lista de tuplas (nome, agilidade)
+        - dificuldades: list[float] → dificuldade de cada etapa (tamanho 31)
+    Retorna:
+        - estado: list[list[int]] → cada sublista contém os índices dos personagens alocados para aquela etapa
+        - usos: list[int] → contagem de quantas vezes cada personagem foi alocado
+    """
+    estado = [[] for _ in range(num_etapas)]
+    usos = [0] * num_chars
+    
+    #Limite máximo global para garantir que ao menos 1 personagem não gaste tudo
+    MAX_TOTAL_USOS = (num_chars * MAX_USOS_POR_PERSONAGEM) - 1
 
-def gerar_grupos_concretos(personagens: list):
-    grupos = []
-    for r in range(1, len(personagens) + 1):
-        for combinacao in itertools.combinations(range(len(personagens)), r):
-            soma_agilidade = sum(personagens[c][1] for c in combinacao)
-            grupos.append((list(combinacao), soma_agilidade))
-    return grupos
+    # --- Fase 1: um personagem obrigatório por etapa ---
+    ordem_dificuldade = sorted(range(num_etapas), key=lambda i: -dificuldades[i])
+    for i in ordem_dificuldade:
+        disponiveis = sorted(
+            [c for c in range(num_chars) if usos[c] < MAX_USOS_POR_PERSONAGEM],
+            key=lambda c: -personagens[c][1]
+        )
+        if disponiveis:
+            c_melhor = disponiveis[0]
+            estado[i].append(c_melhor)
+            usos[c_melhor] += 1
+
+    # --- Fase 2: slots restantes por máximo benefício marginal ---
+    def beneficio_marginal(i, c):
+        """
+        Função interna.
+        Calcula o benefício marginal de adicionar o personagem c à etapa i.
+        Entrada:
+            - i: índice da etapa (0 a 30)
+            - c: índice do personagem (0 a 6)
+        Retorna:
+            - benefício marginal (float): redução no tempo da etapa i se c for adicionado
+        """
+        D = dificuldades[i]
+        A = sum(personagens[x][1] for x in estado[i])
+        if A == 0:
+            return float('inf')
+        return D / A - D / (A + personagens[c][1])
+
+    heap_bm = []
+    for i in range(num_etapas):
+        for c in range(num_chars):
+            if c not in estado[i] and usos[c] < MAX_USOS_POR_PERSONAGEM:
+                heapq.heappush(heap_bm, (-beneficio_marginal(i, c), i, c))
+
+    # Só continua distribuindo se a soma global não atingir o limite de 55
+    while heap_bm and sum(usos) < MAX_TOTAL_USOS:
+        neg_b, i, c = heapq.heappop(heap_bm)
+        if c in estado[i] or usos[c] >= MAX_USOS_POR_PERSONAGEM:
+            continue
+        # Revalida: o benefício pode ter mudado se a etapa recebeu outro char
+        b_real = beneficio_marginal(i, c)
+        if abs(b_real - (-neg_b)) > 1e-9:
+            heapq.heappush(heap_bm, (-b_real, i, c))
+            continue
+        estado[i].append(c)
+        usos[c] += 1
+        for c2 in range(num_chars):
+            if c2 not in estado[i] and usos[c2] < MAX_USOS_POR_PERSONAGEM:
+                heapq.heappush(heap_bm, (-beneficio_marginal(i, c2), i, c2))
+
+    return estado, usos
 
 
-def resolver_etapas_ilp_pulp(dificuldades: list, personagens: list):
-    grupos = gerar_grupos_concretos(personagens)
+def resolver_etapas_simulated_annealing(dificuldades: list, personagens: list):
+    """
+    Simulated Annealing otimizando o limite máximo global de uso.
+    Entrada:
+        - dificuldades: list[float] → dificuldade de cada etapa (tamanho 31)
+        - personagens: list[tuple] → lista de tuplas (nome, agilidade)
+    Retorna:
+        - melhor_global_tempo (float): tempo total das etapas para o melhor estado encontrado
+        - melhor_global_estado (list[list[int]]): estado correspondente ao melhor tempo encontrado
+    """
     num_etapas = len(dificuldades)
-    max_total_usos = (len(personagens) * MAX_USOS_POR_PERSONAGEM) - 1
+    num_chars  = len(personagens)
 
-    problema = pulp.LpProblem("Otimizacao_Jornada_Aang_ILP", pulp.LpMinimize)
-    x = pulp.LpVariable.dicts(
-        "x",
-        ((i, j) for i in range(num_etapas) for j in range(len(grupos))),
-        cat="Binary",
-    )
+    T_INICIAL        = 500.0
+    T_FINAL          = 0.01
+    FATOR_RESFR      = 0.95
+    ITER_POR_T       = 300
+    NUM_TENTATIVAS   = 20
+    
+    # Limite máximo global para validação de adições
+    MAX_TOTAL_USOS = (num_chars * MAX_USOS_POR_PERSONAGEM) - 1
 
-    problema += pulp.lpSum(
-        x[i, j] * (dificuldades[i] / grupos[j][1])
-        for i in range(num_etapas)
-        for j in range(len(grupos))
-    )
+    melhor_global_tempo = float('inf')
+    melhor_global_estado = None
 
-    for i in range(num_etapas):
-        problema += pulp.lpSum(x[i, j] for j in range(len(grupos))) == 1
+    for tentativa in range(NUM_TENTATIVAS):
+        estado, usos = inicializar_estado_guloso(
+            num_etapas, num_chars, personagens, dificuldades
+        )
+        tempo_atual = calcular_tempo_etapas(estado, dificuldades, personagens)
 
-    for c in range(len(personagens)):
-        problema += pulp.lpSum(
-            x[i, j]
-            for i in range(num_etapas)
-            for j in range(len(grupos))
-            if c in grupos[j][0]
-        ) <= MAX_USOS_POR_PERSONAGEM
+        melhor_local_tempo  = tempo_atual
+        
+        temperatura = T_INICIAL
 
-    problema += pulp.lpSum(
-        len(grupos[j][0]) * x[i, j]
-        for i in range(num_etapas)
-        for j in range(len(grupos))
-    ) <= max_total_usos
+        while temperatura > T_FINAL:
+            for _ in range(ITER_POR_T):
+                estado_viz = [list(e) for e in estado]
+                usos_viz   = list(usos)
+                tipo_mov   = random.random()
 
-    problema.solve(pulp.PULP_CBC_CMD(msg=False))
+                if tipo_mov < 0.35:
+                    # transfere char de uma etapa para outra
+                    c = random.randint(0, num_chars - 1)
+                    etapas_com  = [i for i in range(num_etapas) if c in estado_viz[i]]
+                    etapas_sem  = [i for i in range(num_etapas) if c not in estado_viz[i]]
+                    if not etapas_com or not etapas_sem:
+                        continue
+                    origem  = random.choice(etapas_com)
+                    if len(estado_viz[origem]) <= 1:
+                        continue  # não deixa a etapa vazia
+                    destino = random.choice(etapas_sem)
+                    estado_viz[origem].remove(c)
+                    estado_viz[destino].append(c)
 
-    if pulp.LpStatus[problema.status] != "Optimal":
-        raise RuntimeError(f"Solver ILP nao encontrou otimo. Status: {pulp.LpStatus[problema.status]}")
+                elif tipo_mov < 0.70:
+                    # permuta um char entre duas etapas
+                    e1, e2 = random.sample(range(num_etapas), 2)
+                    op_c1 = [c for c in estado_viz[e1] if c not in estado_viz[e2]]
+                    op_c2 = [c for c in estado_viz[e2] if c not in estado_viz[e1]]
+                    if not op_c1 or not op_c2:
+                        continue
+                    c1 = random.choice(op_c1)
+                    c2 = random.choice(op_c2)
+                    estado_viz[e1].remove(c1); estado_viz[e1].append(c2)
+                    estado_viz[e2].remove(c2); estado_viz[e2].append(c1)
 
-    esquema = [[] for _ in range(num_etapas)]
-    for i in range(num_etapas):
-        for j in range(len(grupos)):
-            if pulp.value(x[i, j]) == 1.0:
-                esquema[i] = grupos[j][0]
-                break
+                elif tipo_mov < 0.85:
+                    # Insere um char em uma etapa
+                    # Verifica a restrição global antes de adicionar
+                    if sum(usos_viz) >= MAX_TOTAL_USOS:
+                        continue
+                        
+                    c = random.randint(0, num_chars - 1)
+                    if usos_viz[c] >= MAX_USOS_POR_PERSONAGEM:
+                        continue
+                    etapas_sem = [i for i in range(num_etapas) if c not in estado_viz[i]]
+                    if not etapas_sem:
+                        continue
+                    etapa = random.choice(etapas_sem)
+                    estado_viz[etapa].append(c)
+                    usos_viz[c] += 1
 
-    return pulp.value(problema.objective), esquema, "ILP (PuLP/CBC)"
+                else:
+                    # retira um char de uma etapa
+                    candidatas = [i for i in range(num_etapas) if len(estado_viz[i]) > 1]
+                    if not candidatas:
+                        continue
+                    etapa = random.choice(candidatas)
+                    c = random.choice(estado_viz[etapa])
+                    estado_viz[etapa].remove(c)
+                    usos_viz[c] -= 1
 
+                tempo_viz = calcular_tempo_etapas(estado_viz, dificuldades, personagens)
+                delta = tempo_viz - tempo_atual
 
-def gerar_perfis_tipos():
-    perfis = []
-    for usa_aang in (0, 1):
-        for qtd_trio in range(4):
-            for usa_sokka in (0, 1):
-                for usa_appa in (0, 1):
-                    for usa_momo in (0, 1):
-                        total = usa_aang + qtd_trio + usa_sokka + usa_appa + usa_momo
-                        if total == 0:
-                            continue
+                if delta < 0 or random.random() < math.exp(-delta / temperatura):
+                    estado     = estado_viz
+                    usos       = usos_viz
+                    tempo_atual = tempo_viz
+                    if tempo_atual < melhor_local_tempo:
+                        melhor_local_tempo  = tempo_atual
+                        if melhor_local_tempo < melhor_global_tempo:
+                            melhor_global_tempo  = melhor_local_tempo
+                            melhor_global_estado = [list(e) for e in estado]
 
-                        agilidade = (
-                            usa_aang * 1.8 +
-                            qtd_trio * 1.6 +
-                            usa_sokka * 1.4 +
-                            usa_appa * 0.9 +
-                            usa_momo * 0.7
-                        )
-                        perfis.append((
-                            usa_aang, qtd_trio, usa_sokka, usa_appa, usa_momo,
-                            agilidade, 1.0 / agilidade,
-                        ))
+            temperatura *= FATOR_RESFR
 
-    perfis.sort(key=lambda perfil: perfil[5], reverse=True)
-    return perfis
+        print(f"  Tentativa {tentativa + 1}/{NUM_TENTATIVAS}: "
+              f"{melhor_local_tempo:.6f} min  "
+              f"(melhor global: {melhor_global_tempo:.6f} min)")
 
-
-def expandir_trio_indices(qtd_trio_por_etapa: list[int]):
-    usos_trio = {1: 0, 2: 0, 3: 0}
-    alocacao = []
-
-    for qtd in qtd_trio_por_etapa:
-        disponiveis = sorted(usos_trio, key=lambda idx: (usos_trio[idx], idx))
-        escolhidos = []
-        for idx in disponiveis:
-            if usos_trio[idx] < MAX_USOS_POR_PERSONAGEM and len(escolhidos) < qtd:
-                escolhidos.append(idx)
-        if len(escolhidos) != qtd:
-            raise RuntimeError("Falha ao reconstruir os personagens equivalentes do trio 1.6.")
-        for idx in escolhidos:
-            usos_trio[idx] += 1
-        alocacao.append(escolhidos)
-
-    return alocacao
-
-
-def reconstruir_estado_concreto(perfis_escolhidos_desc: list[tuple]):
-    qtd_trio_por_etapa = [perfil[1] for perfil in perfis_escolhidos_desc]
-    trio_por_etapa = expandir_trio_indices(qtd_trio_por_etapa)
-
-    estado_desc = []
-    for perfil, trio_indices in zip(perfis_escolhidos_desc, trio_por_etapa):
-        usa_aang, _, usa_sokka, usa_appa, usa_momo, _, _ = perfil
-        grupo = []
-        if usa_aang:
-            grupo.append(0)
-        grupo.extend(trio_indices)
-        if usa_sokka:
-            grupo.append(4)
-        if usa_appa:
-            grupo.append(5)
-        if usa_momo:
-            grupo.append(6)
-        estado_desc.append(sorted(grupo))
-
-    return list(reversed(estado_desc))
-
-
-def resolver_etapas_dp_exata(dificuldades: list, personagens: list):
-    dificuldades_desc = list(reversed(dificuldades))
-    perfis = gerar_perfis_tipos()
-    capacidades = (8, 24, 8, 8, 8)
-    num_etapas = len(dificuldades_desc)
-    limite_total_usos = (len(personagens) * MAX_USOS_POR_PERSONAGEM) - 1
-
-    @lru_cache(maxsize=None)
-    def dp(i, uso_aang, uso_trio, uso_sokka, uso_appa, uso_momo):
-        usos = (uso_aang, uso_trio, uso_sokka, uso_appa, uso_momo)
-        total_usos = sum(usos)
-        if total_usos > limite_total_usos:
-            return float("inf")
-
-        if i == num_etapas:
-            return 0.0
-
-        etapas_restantes = num_etapas - i
-        capacidade_restante = sum(cap - uso for cap, uso in zip(capacidades, usos))
-        if capacidade_restante < etapas_restantes:
-            return float("inf")
-
-        dificuldade = dificuldades_desc[i]
-        melhor = float("inf")
-
-        for perfil in perfis:
-            delta_aang, delta_trio, delta_sokka, delta_appa, delta_momo, _, inv_agilidade = perfil
-            novos_usos = (
-                uso_aang + delta_aang,
-                uso_trio + delta_trio,
-                uso_sokka + delta_sokka,
-                uso_appa + delta_appa,
-                uso_momo + delta_momo,
-            )
-
-            if any(novo > cap for novo, cap in zip(novos_usos, capacidades)):
-                continue
-
-            if sum(novos_usos) > limite_total_usos:
-                continue
-
-            capacidade_restante_depois = sum(cap - uso for cap, uso in zip(capacidades, novos_usos))
-            if capacidade_restante_depois < (etapas_restantes - 1):
-                continue
-
-            candidato = dificuldade * inv_agilidade + dp(i + 1, *novos_usos)
-            if candidato < melhor:
-                melhor = candidato
-
-        return melhor
-
-    melhor_tempo = dp(0, 0, 0, 0, 0, 0)
-    estado = (0, 0, 0, 0, 0)
-    perfis_escolhidos_desc = []
-
-    for i, dificuldade in enumerate(dificuldades_desc):
-        alvo = dp(i, *estado)
-        for perfil in perfis:
-            delta_aang, delta_trio, delta_sokka, delta_appa, delta_momo, _, inv_agilidade = perfil
-            novos_usos = (
-                estado[0] + delta_aang,
-                estado[1] + delta_trio,
-                estado[2] + delta_sokka,
-                estado[3] + delta_appa,
-                estado[4] + delta_momo,
-            )
-
-            if any(novo > cap for novo, cap in zip(novos_usos, capacidades)):
-                continue
-            if sum(novos_usos) > limite_total_usos:
-                continue
-
-            etapas_restantes = num_etapas - i
-            capacidade_restante_depois = sum(cap - uso for cap, uso in zip(capacidades, novos_usos))
-            if capacidade_restante_depois < (etapas_restantes - 1):
-                continue
-
-            candidato = dificuldade * inv_agilidade + dp(i + 1, *novos_usos)
-            if math.isclose(candidato, alvo, rel_tol=0.0, abs_tol=1e-9):
-                perfis_escolhidos_desc.append(perfil)
-                estado = novos_usos
-                break
-
-    esquema = reconstruir_estado_concreto(perfis_escolhidos_desc)
-    return melhor_tempo, esquema, "DP exata (fallback sem PuLP)"
-
-
-def resolver_etapas_exatas(dificuldades: list, personagens: list):
-    if PULP_DISPONIVEL:
-        return resolver_etapas_ilp_pulp(dificuldades, personagens)
-    return resolver_etapas_dp_exata(dificuldades, personagens)
-
+    return melhor_global_tempo, melhor_global_estado
 
 # =====================================================================
-# 5. SAIDA DE RESULTADOS
+# 5. SAÍDA DE RESULTADOS NO TERMINAL
 # =====================================================================
 
 def exibir_resultado_etapas(esquema: list, personagens: list, dificuldades: list):
+    """
+    Imprime a tabela de atribuição de personagens por etapa.
+    Entrada:
+        - esquema: list[list[int]] → cada sublista contém os índices dos personagens alocados para aquela etapa
+        - personagens: list[tuple] → lista de tuplas (nome, agilidade)
+        - dificuldades: list[float] → dificuldade de cada etapa
+    Retorna:
+        - None (imprime a tabela formatada no terminal)
+    """
     print(f"\n  {'Etapa':>5} | {'Dif.':>4} | {'Personagens':<36} | {'Agil.':>5} | {'Tempo':>8}")
     print("  " + "-" * 72)
     usos_totais = {p[0]: 0 for p in personagens}
-
     for i, grupo in enumerate(esquema):
-        num_etapa = i + 1
-        dificuldade = dificuldades[i]
-        soma_agilidade = sum(personagens[c][1] for c in grupo)
-        tempo = dificuldade / soma_agilidade
+        num_etapa = i + 1  # etapas 1 a 31
+        D = dificuldades[i]
+        A = sum(personagens[c][1] for c in grupo)
+        t = D / A
         nomes = ", ".join(personagens[c][0] for c in sorted(grupo))
         for c in grupo:
             usos_totais[personagens[c][0]] += 1
-        print(f"  {num_etapa:>5} | {dificuldade:>4} | {nomes:<36} | {soma_agilidade:>5.2f} | {tempo:>13.6f}")
+        print(f"  {num_etapa:>5} | {D:>4} | {nomes:<36} | {A:>5.2f} | {t:>13.6f}")
 
     print("\n  Usos por personagem:")
     for nome, cnt in usos_totais.items():
-        barra = "#" * cnt + "-" * (MAX_USOS_POR_PERSONAGEM - cnt)
+        barra = '█' * cnt + '░' * (MAX_USOS_POR_PERSONAGEM - cnt)
         print(f"    {nome:<8}: [{barra}] {cnt}/{MAX_USOS_POR_PERSONAGEM}")
 
-
 # =====================================================================
-# 6. INTERFACE GRAFICA
+# 6. INTERFACE GRÁFICA (PYGAME)
 # =====================================================================
 
 def pre_renderizar_mapa(mapa: list) -> pygame.Surface:
-    linhas = len(mapa)
-    colunas = len(mapa[0])
-    largura = colunas * TAMANHO_CELULA
-    altura = linhas * TAMANHO_CELULA
+    """
+    Pré-renderiza todo o bioma do mapa em uma Surface estática.
+    Isso evita redesenhar cada célula a cada frame, reduzindo o custo de CPU.
+    Entrada:
+        - mapa: list[list[str]] → matriz do mapa lida do arquivo
+    Retorna:
+        - superficie: pygame.Surface → superfície pré-renderizada do mapa
+    """
+    linhas   = len(mapa)
+    colunas  = len(mapa[0])
+    largura  = colunas * TAMANHO_CELULA
+    altura   = linhas  * TAMANHO_CELULA
     superficie = pygame.Surface((largura, altura))
 
     chars_ckpt = set(CHECKPOINTS_ORDEM)
     for i, linha in enumerate(mapa):
         for j, char in enumerate(linha):
-            cor = CORES["CHECKPOINT"] if char in chars_ckpt else CORES.get(char, CORES["."])
+            cor = CORES['CHECKPOINT'] if char in chars_ckpt else CORES.get(char, CORES['.'])
             pygame.draw.rect(
-                superficie,
-                cor,
-                pygame.Rect(
-                    j * TAMANHO_CELULA,
-                    i * TAMANHO_CELULA,
-                    TAMANHO_CELULA,
-                    TAMANHO_CELULA,
-                ),
+                superficie, cor,
+                pygame.Rect(j * TAMANHO_CELULA, i * TAMANHO_CELULA,
+                            TAMANHO_CELULA, TAMANHO_CELULA)
             )
     return superficie
 
 
-def executar_visualizacao(
-    mapa: list,
-    rota_completa: list,
-    indices_checkpoints: dict,
-    custo_final: float,
-    tempos_por_etapa: list,
-    rotulo_solver: str,
-):
+def executar_visualizacao(mapa: list, rota_completa: list,
+                           indices_checkpoints: dict, custo_final: float, 
+                           tempos_por_etapa: list): # <-- Recebe os tempos das etapas calculados pelo SA
+    """
+    Loop principal do Pygame.
+    Anima o avatar percorrendo a rota_completa passo a passo,
+    pausa brevemente ao atingir cada checkpoint, e exibe um HUD com
+    o contador de checkpoints e o custo acumulado em tempo real.
+    Entrada:
+        - mapa: list[list[str]] → matriz do mapa lida do arquivo
+        - rota_completa: list[tuple] → lista de posições (linha, coluna)
+        - indices_checkpoints: dict → dicionário com os índices dos checkpoints
+        - custo_final: float → custo total da rota
+        - tempos_por_etapa: list[float] → tempos calculados para cada etapa
+    Retorna:
+        - None (inicia a janela gráfica e executa a animação)
+    """
     pygame.init()
-    fonte_titulo = pygame.font.SysFont("Arial", 20, bold=True)
-    fonte_info = pygame.font.SysFont("Arial", 16, bold=True)
+    fonte_titulo = pygame.font.SysFont('Arial', 20, bold=True)
+    fonte_info   = pygame.font.SysFont('Arial', 16, bold=True)
 
-    linhas_mapa = len(mapa)
+    linhas_mapa  = len(mapa)
     colunas_mapa = len(mapa[0])
     largura_tela = colunas_mapa * TAMANHO_CELULA
-    altura_tela = linhas_mapa * TAMANHO_CELULA
+    altura_tela  = linhas_mapa  * TAMANHO_CELULA
 
     tela = pygame.display.set_mode((largura_tela, altura_tela))
-    pygame.display.set_caption(f"Jornada de Aang - {rotulo_solver} - Custo Total: {custo_final:.2f} min")
+    pygame.display.set_caption(f"Jornada de Aang — Custo Total: {custo_final:.2f} min")
 
     sup_mapa = pre_renderizar_mapa(mapa)
+
     sup_rastro = pygame.Surface((largura_tela, altura_tela), pygame.SRCALPHA)
     sup_rastro.fill((0, 0, 0, 0))
 
-    relogio = pygame.time.Clock()
-    rodando = True
-    passo_atual = 0
-    total_passos = len(rota_completa)
-    ckpts_visitados = set()
+    relogio           = pygame.time.Clock()
+    rodando           = True
+    passo_atual       = 0
+    total_passos      = len(rota_completa)
+    ckpts_visitados   = set()
     etapas_concluidas = 0
-    custo_acumulado = 0.0
+    
+    # Alterado para float para comportar os decimais das etapas com precisão
+    custo_acumulado   = 0.0  
 
     while rodando:
         for evento in pygame.event.get():
@@ -533,30 +499,34 @@ def executar_visualizacao(
 
             pygame.draw.rect(
                 sup_rastro,
-                (*CORES["CAMINHO"], 210),
-                pygame.Rect(
-                    j_pos * TAMANHO_CELULA,
-                    i_pos * TAMANHO_CELULA,
-                    TAMANHO_CELULA,
-                    TAMANHO_CELULA,
-                ),
+                (*CORES['CAMINHO'], 210),
+                pygame.Rect(j_pos * TAMANHO_CELULA, i_pos * TAMANHO_CELULA,
+                            TAMANHO_CELULA, TAMANHO_CELULA)
             )
 
+            # 1. Soma o custo do terreno (A*) ao dar um passo
             if passo_atual > 0:
                 terreno = mapa[i_pos][j_pos]
-                custo_acumulado += CUSTOS_TERRENO.get(terreno, 1)
+                custo_passo = CUSTOS_TERRENO.get(terreno, 1)
+                custo_acumulado += custo_passo
 
+            # 2. Verifica se chegou no Checkpoint final de uma etapa
             for char, idx in indices_checkpoints.items():
                 if passo_atual == idx and char not in ckpts_visitados:
                     ckpts_visitados.add(char)
+                    
+                    # --- NOVA LÓGICA: SOMA O CUSTO DA ETAPA (SA) ---
+                    # Se houver uma etapa correspondente, soma o tempo calculado para ela
                     if etapas_concluidas < len(tempos_por_etapa):
                         custo_acumulado += tempos_por_etapa[etapas_concluidas]
+                    # -----------------------------------------------
+                    
                     etapas_concluidas += 1
                     chegou_em_checkpoint = True
 
             passo_atual += 1
 
-        tela.blit(sup_mapa, (0, 0))
+        tela.blit(sup_mapa,   (0, 0))
         tela.blit(sup_rastro, (0, 0))
 
         if passo_atual > 0:
@@ -564,14 +534,17 @@ def executar_visualizacao(
             i_av, j_av = rota_completa[idx_atual]
             cx = j_av * TAMANHO_CELULA + TAMANHO_CELULA // 2
             cy = i_av * TAMANHO_CELULA + TAMANHO_CELULA // 2
-            cor_avatar = CORES["CHECKPOINT_ATINGIDO"] if chegou_em_checkpoint else CORES["AVATAR"]
-            pygame.draw.circle(tela, cor_avatar, (cx, cy), TAMANHO_CELULA + 1)
+            cor_av = (CORES['CHECKPOINT_ATINGIDO']
+                      if chegou_em_checkpoint else CORES['AVATAR'])
+            pygame.draw.circle(tela, cor_av, (cx, cy), TAMANHO_CELULA + 1)
 
         txt_etapas = fonte_titulo.render(
             f"Checkpoints: {etapas_concluidas} / 31", True, (255, 255, 255)
         )
-
+        
+        # UI Condicional: Caminho em progresso vs Custo Final
         if passo_atual < total_passos:
+            # Texto atualizado para "Custo Acumulado" e formatado com duas casas decimais
             txt_custo = fonte_info.render(
                 f"Custo Acumulado: {custo_acumulado:.2f} min", True, (255, 255, 255)
             )
@@ -582,13 +555,13 @@ def executar_visualizacao(
 
         hud_w = max(txt_etapas.get_width(), txt_custo.get_width()) + 24
         hud_h = txt_etapas.get_height() + txt_custo.get_height() + 16
-        hud = pygame.Surface((hud_w, hud_h))
+        hud   = pygame.Surface((hud_w, hud_h))
         hud.fill((0, 0, 0))
         hud.set_alpha(180)
-
-        tela.blit(hud, (10, 10))
+        
+        tela.blit(hud,        (10, 10))
         tela.blit(txt_etapas, (22, 15))
-        tela.blit(txt_custo, (22, 15 + txt_etapas.get_height() + 5))
+        tela.blit(txt_custo,  (22, 15 + txt_etapas.get_height() + 5))
 
         pygame.display.flip()
 
@@ -599,67 +572,64 @@ def executar_visualizacao(
 
     pygame.quit()
 
-
 # =====================================================================
-# 7. EXECUCAO PRINCIPAL
+# 7. EXECUÇÃO PRINCIPAL
 # =====================================================================
 
 if __name__ == "__main__":
-    print("=" * 68)
-    print("      Jornada de Aang - Agente Inteligente (INF1771)")
-    print("      Solver exato para as etapas + validacao da rota")
-    print("=" * 68)
+    print("=" * 60)
+    print("      Jornada de Aang — Agente Inteligente (INF1771)")
+    print("=" * 60)
 
-    print("\n[1/4] Carregando mapa...")
-    mapa, checkpoints = carregar_mapa(MAPA_ARQUIVO)
-    print(
-        f"      Dimensoes: {len(mapa)} x {len(mapa[0])}  |  "
-        f"Checkpoints encontrados: {len(checkpoints)}"
-    )
+    print("\n[1/3] Carregando mapa...")
+    mapa, checkpoints = carregar_mapa("MAPA_LENDA-AANG.txt")
+    print(f"      Dimensões: {len(mapa)} x {len(mapa[0])}  |  "
+          f"Checkpoints encontrados: {len(checkpoints)}")
 
-    print("\n[2/4] Validando rota A* entre checkpoints...")
-    validacao = verificar_otimalidade_rota(mapa, checkpoints)
-    for origem, destino, custo_a_star, custo_dijkstra, ok in validacao["relatorio"]:
-        status = "OK" if ok else "DIVERGIU"
-        print(f"      {origem} -> {destino}: A*={custo_a_star} | Dijkstra={custo_dijkstra} | {status}")
+    print("\n[2/3] Executando A* entre checkpoints...")
+    tempo_viagem_total = 0
+    rota_completa      = []
+    indices_checkpoints = {}
 
-    if validacao["rota_otima"]:
-        print("\n      Confirmacao: cada trecho encontrado pelo A* tem custo minimo.")
-        print("      Como a ordem dos checkpoints e fixa, a soma desses trechos tambem e minima.")
-    else:
-        print("\n      AVISO: pelo menos um trecho do A* divergiu do custo minimo.")
+    for i in range(len(CHECKPOINTS_ORDEM) - 1):
+        origem_char  = CHECKPOINTS_ORDEM[i]
+        destino_char = CHECKPOINTS_ORDEM[i + 1]
 
-    tempo_viagem_total = validacao["custo_total_a_star"]
-    rota_completa = validacao["rota_completa"]
-    indices_checkpoints = validacao["indices_checkpoints"]
-    print(f"\n      Tempo total de viagem validado: {tempo_viagem_total} minutos")
+        custo, rota = a_star(mapa, checkpoints[origem_char], checkpoints[destino_char])
+        tempo_viagem_total += custo
 
-    print("\n[3/4] Otimizando atribuicao de personagens com solver exato...")
-    tempo_etapas, esquema, solver_usado = resolver_etapas_exatas(DIFICULDADES, PERSONAGENS)
-    print(f"      Solver usado: {solver_usado}")
+        if i == 0:
+            rota_completa.extend(rota)
+        else:
+            rota_completa.extend(rota[1:])
+
+        indices_checkpoints[destino_char] = len(rota_completa) - 1
+        print(f"      {origem_char} → {destino_char}: {custo} min")
+
+    print(f"\n      Tempo total de viagem (A*): {tempo_viagem_total} minutos")
+
+    print("\n[3/3] Otimizando atribuição de personagens (Simulated Annealing (SA))...")
+    tempo_etapas, esquema = resolver_etapas_simulated_annealing(DIFICULDADES, PERSONAGENS)
     exibir_resultado_etapas(esquema, PERSONAGENS, DIFICULDADES)
 
+    # --- NOVO: Extração dos tempos individuais por etapa gerados pelo SA ---
     tempos_por_etapa = []
     for i, grupo in enumerate(esquema):
-        dificuldade = DIFICULDADES[i]
-        soma_agilidade = sum(PERSONAGENS[c][1] for c in grupo)
-        tempos_por_etapa.append(dificuldade / soma_agilidade)
+        D = DIFICULDADES[i]
+        A = sum(PERSONAGENS[c][1] for c in grupo)
+        tempos_por_etapa.append(D / A)
+    # -----------------------------------------------------------------------
 
     custo_final = tempo_viagem_total + tempo_etapas
 
-    print("\n[4/4] Resultado final")
-    print("=" * 68)
-    print(f"  Tempo de viagem  (A*)           : {tempo_viagem_total:>12.6f} minutos")
-    print(f"  Tempo das etapas ({solver_usado}): {tempo_etapas:>12.6f} minutos")
-    print(f"  CUSTO FINAL DO AGENTE           : {custo_final:>12.6f} minutos")
-    print("=" * 68)
-    print("\nAbrindo visualizacao grafica... (feche a janela para encerrar)\n")
+    print("\n" + "=" * 60)
+    print("                   RESULTADO FINAL")
+    print("=" * 60)
+    print(f"  Tempo de viagem  (A*) :  {tempo_viagem_total:>10} minutos")
+    print(f"  Tempo das etapas (SA) :  {tempo_etapas:>16.6f} minutos")
+    print(f"  CUSTO FINAL DO AGENTE:   {custo_final:>16.6f} minutos")
+    print("=" * 60)
+    print("\nAbrindo visualização gráfica... (feche a janela para encerrar)\n")
 
-    executar_visualizacao(
-        mapa,
-        rota_completa,
-        indices_checkpoints,
-        custo_final,
-        tempos_por_etapa,
-        solver_usado,
-    )
+    # Passamos a lista de tempos das etapas para a visualização gráfica
+    executar_visualizacao(mapa, rota_completa, indices_checkpoints, custo_final, tempos_por_etapa)
