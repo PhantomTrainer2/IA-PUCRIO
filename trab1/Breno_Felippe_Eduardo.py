@@ -282,7 +282,7 @@ def resolver_etapas_simulated_annealing(dificuldades: list, personagens: list):
     T_INICIAL        = 500.0
     T_FINAL          = 0.01
     FATOR_RESFR      = 0.95
-    ITER_POR_T       = 300
+    ITER_POR_T       = 1000
     NUM_TENTATIVAS   = 20
     
     # Limite máximo global para validação de adições
