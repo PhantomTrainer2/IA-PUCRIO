@@ -4,9 +4,12 @@
 
 import heapq
 import math
+from pathlib import Path
 import random
 import sys
+from typing import Union
 
+# Verifica se a biblioteca Pygame está instalda.
 try:
     import pygame
 except ImportError:
@@ -14,9 +17,7 @@ except ImportError:
     print("Por favor, abra o terminal e digite: pip install pygame")
     sys.exit(1)
 
-
 # Custo dos Tiles
-
 CUSTOS_TERRENO = {
     '.': 1,    # Plano
     'R': 5,    # Rochoso
@@ -36,7 +37,6 @@ PERSONAGENS = [
     ("Appa",   0.9),
     ("Momo",   0.7),
 ]
-
 
 # 32 checkpoints representando as tarefas
 CHECKPOINTS_ORDEM = [
@@ -73,8 +73,10 @@ CORES = {
 }
 
 
+MAPA_ARQUIVO = Path(__file__).resolve().with_name("MAPA_LENDA-AANG.txt") # Caminho relativo ao arquivo de mapa
+
 #Carregar Mapa
-def carregar_mapa(caminho_arquivo: str):
+def carregar_mapa(caminho_arquivo: Union[str, Path]):
     """
     Lê o arquivo TXT e retorna:
       - mapa: lista de listas de caracteres (82 x 300)
@@ -168,9 +170,9 @@ def a_star(mapa: list, inicio: tuple, objetivo: tuple):
 
     return float('inf'), []  # sem caminho
 
-# =====================================================================
+# =================================================================================================
 # 4. BUSCA LOCAL: SIMULATED ANNEALING (SA) Meta-heurística para atribuição de personagens às etapas
-# =====================================================================
+# =================================================================================================
 
 def calcular_tempo_etapas(estado: list, dificuldades: list, personagens: list) -> float:
     """
@@ -265,7 +267,6 @@ def inicializar_estado_guloso(num_etapas: int, num_chars: int,
 
     return estado, usos
 
-
 def resolver_etapas_simulated_annealing(dificuldades: list, personagens: list):
     """
     Simulated Annealing otimizando o limite máximo global de uso.
@@ -279,11 +280,11 @@ def resolver_etapas_simulated_annealing(dificuldades: list, personagens: list):
     num_etapas = len(dificuldades)
     num_chars  = len(personagens)
 
-    T_INICIAL        = 500.0
-    T_FINAL          = 0.01
-    FATOR_RESFR      = 0.95
-    ITER_POR_T       = 1000
-    NUM_TENTATIVAS   = 20
+    T_INICIAL        = 500.0 # temperatura inicial alta para permitir exploração ampla
+    T_FINAL          = 0.001 # temperatura final baixa para convergência
+    FATOR_RESFR      = 0.99 # resfria a temperatura a cada iteração
+    ITER_POR_T       = 1000 # número de iterações por temperatura
+    NUM_TENTATIVAS   = 20 # número de execuções independentes do SA para evitar mínimos locais
     
     # Limite máximo global para validação de adições
     MAX_TOTAL_USOS = (num_chars * MAX_USOS_POR_PERSONAGEM) - 1
@@ -442,7 +443,6 @@ def pre_renderizar_mapa(mapa: list) -> pygame.Surface:
             )
     return superficie
 
-
 def executar_visualizacao(mapa: list, rota_completa: list,
                            indices_checkpoints: dict, custo_final: float, 
                            tempos_por_etapa: list): # <-- Recebe os tempos das etapas calculados pelo SA
@@ -582,7 +582,7 @@ if __name__ == "__main__":
     print("=" * 60)
 
     print("\n[1/3] Carregando mapa...")
-    mapa, checkpoints = carregar_mapa("MAPA_LENDA-AANG.txt")
+    mapa, checkpoints = carregar_mapa(MAPA_ARQUIVO)
     print(f"      Dimensões: {len(mapa)} x {len(mapa[0])}  |  "
           f"Checkpoints encontrados: {len(checkpoints)}")
 
