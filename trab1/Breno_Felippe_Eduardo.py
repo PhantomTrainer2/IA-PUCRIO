@@ -194,6 +194,13 @@ def calcular_tempo_etapas(estado: list, dificuldades: list, personagens: list) -
         tempo_total += dificuldades[i] / soma_agilidade
     return tempo_total
 
+def calcular_agilidades_etapas(estado: list, personagens: list) -> list:
+    """
+    Calcula a soma de agilidade de cada etapa para permitir atualizaÃ§Ãµes
+    incrementais do custo no Simulated Annealing.
+    """
+    return [sum(personagens[c][1] for c in grupo) for grupo in estado]
+
 def inicializar_estado_guloso(num_etapas: int, num_chars: int,
                                personagens: list, dificuldades: list):
     """
@@ -280,97 +287,166 @@ def resolver_etapas_simulated_annealing(dificuldades: list, personagens: list):
     num_etapas = len(dificuldades)
     num_chars  = len(personagens)
 
-    T_INICIAL        = 500.0 # temperatura inicial alta para permitir exploração ampla
-    T_FINAL          = 0.001 # temperatura final baixa para convergência
-    FATOR_RESFR      = 0.99 # resfria a temperatura a cada iteração
-    ITER_POR_T       = 1000 # número de iterações por temperatura
-    NUM_TENTATIVAS   = 20 # número de execuções independentes do SA para evitar mínimos locais
+    # Configuração enxuta: mantém o SA, mas com custo incremental e
+    # execução reprodutível para convergir dentro do tempo esperado.
+    T_INICIAL        = 60.0
+    T_FINAL          = 0.02
+    FATOR_RESFR      = 0.96
+    ITER_POR_T       = 500
+    NUM_TENTATIVAS   = 7
     
     # Limite máximo global para validação de adições
     MAX_TOTAL_USOS = (num_chars * MAX_USOS_POR_PERSONAGEM) - 1
 
     melhor_global_tempo = float('inf')
     melhor_global_estado = None
+    rng = random.Random(0)
 
     for tentativa in range(NUM_TENTATIVAS):
         estado, usos = inicializar_estado_guloso(
             num_etapas, num_chars, personagens, dificuldades
         )
-        tempo_atual = calcular_tempo_etapas(estado, dificuldades, personagens)
+        agilidades = calcular_agilidades_etapas(estado, personagens)
+        total_usos = sum(usos)
+        tempo_atual = sum(
+            dificuldades[i] / agilidades[i] for i in range(num_etapas)
+        )
 
-        melhor_local_tempo  = tempo_atual
+        melhor_local_tempo = tempo_atual
+        melhor_local_estado = [list(e) for e in estado]
+
+        if tempo_atual < melhor_global_tempo:
+            melhor_global_tempo = tempo_atual
+            melhor_global_estado = [list(e) for e in estado]
         
         temperatura = T_INICIAL
 
         while temperatura > T_FINAL:
             for _ in range(ITER_POR_T):
-                estado_viz = [list(e) for e in estado]
-                usos_viz   = list(usos)
-                tipo_mov   = random.random()
+                tipo_mov = rng.random()
+                movimento = None
+                delta = None
 
                 if tipo_mov < 0.35:
-                    # transfere char de uma etapa para outra
-                    c = random.randint(0, num_chars - 1)
-                    etapas_com  = [i for i in range(num_etapas) if c in estado_viz[i]]
-                    etapas_sem  = [i for i in range(num_etapas) if c not in estado_viz[i]]
+                    # transfere um personagem entre etapas sem deixar a origem vazia
+                    c = rng.randrange(num_chars)
+                    etapas_com = [
+                        i for i in range(num_etapas)
+                        if c in estado[i] and len(estado[i]) > 1
+                    ]
+                    etapas_sem = [i for i in range(num_etapas) if c not in estado[i]]
                     if not etapas_com or not etapas_sem:
                         continue
-                    origem  = random.choice(etapas_com)
-                    if len(estado_viz[origem]) <= 1:
-                        continue  # não deixa a etapa vazia
-                    destino = random.choice(etapas_sem)
-                    estado_viz[origem].remove(c)
-                    estado_viz[destino].append(c)
+                    origem = rng.choice(etapas_com)
+                    agilidade_char = personagens[c][1]
+                    destino = rng.choice(etapas_sem)
+                    delta = (
+                        dificuldades[origem] / (agilidades[origem] - agilidade_char)
+                        - dificuldades[origem] / agilidades[origem]
+                        + dificuldades[destino] / (agilidades[destino] + agilidade_char)
+                        - dificuldades[destino] / agilidades[destino]
+                    )
+                    movimento = ("transferir", c, origem, destino)
 
                 elif tipo_mov < 0.70:
-                    # permuta um char entre duas etapas
-                    e1, e2 = random.sample(range(num_etapas), 2)
-                    op_c1 = [c for c in estado_viz[e1] if c not in estado_viz[e2]]
-                    op_c2 = [c for c in estado_viz[e2] if c not in estado_viz[e1]]
+                    # permuta personagens entre duas etapas para escapar de mínimos locais
+                    e1, e2 = rng.sample(range(num_etapas), 2)
+                    op_c1 = [c for c in estado[e1] if c not in estado[e2]]
+                    op_c2 = [c for c in estado[e2] if c not in estado[e1]]
                     if not op_c1 or not op_c2:
                         continue
-                    c1 = random.choice(op_c1)
-                    c2 = random.choice(op_c2)
-                    estado_viz[e1].remove(c1); estado_viz[e1].append(c2)
-                    estado_viz[e2].remove(c2); estado_viz[e2].append(c1)
+                    c1 = rng.choice(op_c1)
+                    c2 = rng.choice(op_c2)
+                    a1 = personagens[c1][1]
+                    a2 = personagens[c2][1]
+                    delta = (
+                        dificuldades[e1] / (agilidades[e1] - a1 + a2)
+                        - dificuldades[e1] / agilidades[e1]
+                        + dificuldades[e2] / (agilidades[e2] - a2 + a1)
+                        - dificuldades[e2] / agilidades[e2]
+                    )
+                    movimento = ("trocar", e1, c1, e2, c2)
 
                 elif tipo_mov < 0.85:
-                    # Insere um char em uma etapa
-                    # Verifica a restrição global antes de adicionar
-                    if sum(usos_viz) >= MAX_TOTAL_USOS:
+                    # insere personagem, respeitando o limite global e o individual
+                    if total_usos >= MAX_TOTAL_USOS:
                         continue
                         
-                    c = random.randint(0, num_chars - 1)
-                    if usos_viz[c] >= MAX_USOS_POR_PERSONAGEM:
+                    c = rng.randrange(num_chars)
+                    if usos[c] >= MAX_USOS_POR_PERSONAGEM:
                         continue
-                    etapas_sem = [i for i in range(num_etapas) if c not in estado_viz[i]]
+                    etapas_sem = [i for i in range(num_etapas) if c not in estado[i]]
                     if not etapas_sem:
                         continue
-                    etapa = random.choice(etapas_sem)
-                    estado_viz[etapa].append(c)
-                    usos_viz[c] += 1
+                    etapa = rng.choice(etapas_sem)
+                    agilidade_char = personagens[c][1]
+                    delta = (
+                        dificuldades[etapa] / (agilidades[etapa] + agilidade_char)
+                        - dificuldades[etapa] / agilidades[etapa]
+                    )
+                    movimento = ("inserir", c, etapa)
 
                 else:
-                    # retira um char de uma etapa
-                    candidatas = [i for i in range(num_etapas) if len(estado_viz[i]) > 1]
+                    # retira personagem de uma etapa sem deixá-la vazia
+                    candidatas = [i for i in range(num_etapas) if len(estado[i]) > 1]
                     if not candidatas:
                         continue
-                    etapa = random.choice(candidatas)
-                    c = random.choice(estado_viz[etapa])
-                    estado_viz[etapa].remove(c)
-                    usos_viz[c] -= 1
+                    etapa = rng.choice(candidatas)
+                    c = rng.choice(estado[etapa])
+                    agilidade_char = personagens[c][1]
+                    delta = (
+                        dificuldades[etapa] / (agilidades[etapa] - agilidade_char)
+                        - dificuldades[etapa] / agilidades[etapa]
+                    )
+                    movimento = ("retirar", c, etapa)
 
-                tempo_viz = calcular_tempo_etapas(estado_viz, dificuldades, personagens)
-                delta = tempo_viz - tempo_atual
+                if movimento is None:
+                    continue
 
-                if delta < 0 or random.random() < math.exp(-delta / temperatura):
-                    estado     = estado_viz
-                    usos       = usos_viz
-                    tempo_atual = tempo_viz
-                    if tempo_atual < melhor_local_tempo:
-                        melhor_local_tempo  = tempo_atual
-                        if melhor_local_tempo < melhor_global_tempo:
-                            melhor_global_tempo  = melhor_local_tempo
+                if delta < 0 or rng.random() < math.exp(-delta / temperatura):
+                    tipo = movimento[0]
+
+                    if tipo == "transferir":
+                        _, c, origem, destino = movimento
+                        agilidade_char = personagens[c][1]
+                        estado[origem].remove(c)
+                        estado[destino].append(c)
+                        agilidades[origem] -= agilidade_char
+                        agilidades[destino] += agilidade_char
+
+                    elif tipo == "trocar":
+                        _, e1, c1, e2, c2 = movimento
+                        a1 = personagens[c1][1]
+                        a2 = personagens[c2][1]
+                        estado[e1].remove(c1)
+                        estado[e1].append(c2)
+                        estado[e2].remove(c2)
+                        estado[e2].append(c1)
+                        agilidades[e1] += a2 - a1
+                        agilidades[e2] += a1 - a2
+
+                    elif tipo == "inserir":
+                        _, c, etapa = movimento
+                        agilidade_char = personagens[c][1]
+                        estado[etapa].append(c)
+                        usos[c] += 1
+                        total_usos += 1
+                        agilidades[etapa] += agilidade_char
+
+                    else:
+                        _, c, etapa = movimento
+                        agilidade_char = personagens[c][1]
+                        estado[etapa].remove(c)
+                        usos[c] -= 1
+                        total_usos -= 1
+                        agilidades[etapa] -= agilidade_char
+
+                    tempo_atual += delta
+                    if tempo_atual < melhor_local_tempo - 1e-12:
+                        melhor_local_tempo = tempo_atual
+                        melhor_local_estado = [list(e) for e in estado]
+                        if melhor_local_tempo < melhor_global_tempo - 1e-12:
+                            melhor_global_tempo = melhor_local_tempo
                             melhor_global_estado = [list(e) for e in estado]
 
             temperatura *= FATOR_RESFR
@@ -379,7 +455,7 @@ def resolver_etapas_simulated_annealing(dificuldades: list, personagens: list):
               f"{melhor_local_tempo:.6f} min  "
               f"(melhor global: {melhor_global_tempo:.6f} min)")
 
-    return melhor_global_tempo, melhor_global_estado
+    return melhor_global_tempo, melhor_global_estado or melhor_local_estado
 
 # =====================================================================
 # 5. SAÍDA DE RESULTADOS NO TERMINAL
