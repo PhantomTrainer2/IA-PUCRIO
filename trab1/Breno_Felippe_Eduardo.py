@@ -198,6 +198,11 @@ def calcular_agilidades_etapas(estado: list, personagens: list) -> list:
     """
     Calcula a soma de agilidade de cada etapa para permitir atualizaÃ§Ãµes
     incrementais do custo no Simulated Annealing.
+    Entrada:
+    - estado: list[list[int]] → cada sublista contém os índices dos personagens alocados para aquela etapa
+    - personagens: list[tuple] → lista de tuplas (nome, agilidade) dos personagens
+    Retorna:
+    - list[float] → lista com a soma de agilidade de cada etapa
     """
     return [sum(personagens[c][1] for c in grupo) for grupo in estado]
 
@@ -227,11 +232,11 @@ def inicializar_estado_guloso(num_etapas: int, num_chars: int,
         disponiveis = sorted(
             [c for c in range(num_chars) if usos[c] < MAX_USOS_POR_PERSONAGEM],
             key=lambda c: -personagens[c][1]
-        )
+        ) # disponiveis representa os personagens disponíveis ordenados por agilidade decrescente
         if disponiveis:
-            c_melhor = disponiveis[0]
-            estado[i].append(c_melhor)
-            usos[c_melhor] += 1
+            c_melhor = disponiveis[0] # personagem mais ágil disponível
+            estado[i].append(c_melhor) # aloca o personagem mais ágil disponível para o indice de etapa mais difícil ate o mais fácil
+            usos[c_melhor] += 1 #vezes em que o personagem foi utilizado.
 
     # --- Fase 2: slots restantes por máximo benefício marginal ---
     def beneficio_marginal(i, c):
@@ -244,16 +249,17 @@ def inicializar_estado_guloso(num_etapas: int, num_chars: int,
         Retorna:
             - benefício marginal (float): redução no tempo da etapa i se c for adicionado
         """
-        D = dificuldades[i]
-        A = sum(personagens[x][1] for x in estado[i])
+        D = dificuldades[i] #lista de dificuldades
+        A = sum(personagens[x][1] for x in estado[i]) #soma das agilidades dos personagens já alocados na etapa i
         if A == 0:
             return float('inf')
         return D / A - D / (A + personagens[c][1])
 
-    heap_bm = []
-    for i in range(num_etapas):
-        for c in range(num_chars):
-            if c not in estado[i] and usos[c] < MAX_USOS_POR_PERSONAGEM:
+    heap_bm = [] #lista de tuplas (-benefício_marginal, i, c)
+    for i in range(num_etapas): #indice da etapa
+        for c in range(num_chars): #indice do personagem
+            if c not in estado[i] and usos[c] < MAX_USOS_POR_PERSONAGEM: 
+                #verifica se o personagem c não está alocado na etapa i e se ele ainda pode ser alocado (não atingiu o limite de 8 usos)
                 heapq.heappush(heap_bm, (-beneficio_marginal(i, c), i, c))
 
     # Só continua distribuindo se a soma global não atingir o limite de 55
@@ -261,15 +267,15 @@ def inicializar_estado_guloso(num_etapas: int, num_chars: int,
         neg_b, i, c = heapq.heappop(heap_bm)
         if c in estado[i] or usos[c] >= MAX_USOS_POR_PERSONAGEM:
             continue
-        # Revalida: o benefício pode ter mudado se a etapa recebeu outro char
+        # Revalida: o benefício pode ter mudado se a etapa recebeu outro personagem ou se o personagem foi alocado em outra etapa
         b_real = beneficio_marginal(i, c)
-        if abs(b_real - (-neg_b)) > 1e-9:
+        if abs(b_real - (-neg_b)) > 1e-9: # Se a diferença for significativa, re-insere com o valor atualizado
             heapq.heappush(heap_bm, (-b_real, i, c))
             continue
         estado[i].append(c)
         usos[c] += 1
-        for c2 in range(num_chars):
-            if c2 not in estado[i] and usos[c2] < MAX_USOS_POR_PERSONAGEM:
+        for c2 in range(num_chars): # c2 é o personagem candidato para ser adicionado na etapa i
+            if c2 not in estado[i] and usos[c2] < MAX_USOS_POR_PERSONAGEM: # verifica se c2 = c no estado i e se ele ainda pode ser alocado
                 heapq.heappush(heap_bm, (-beneficio_marginal(i, c2), i, c2))
 
     return estado, usos
