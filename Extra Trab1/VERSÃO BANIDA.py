@@ -228,7 +228,7 @@ def gerar_grupos_concretos(personagens: list):
 def resolver_etapas_ilp_pulp(dificuldades: list, personagens: list):
     grupos = gerar_grupos_concretos(personagens)
     num_etapas = len(dificuldades)
-    max_total_usos = (len(personagens) * MAX_USOS_POR_PERSONAGEM) - 1
+    max_total_usos = (len(personagens) * MAX_USOS_POR_PERSONAGEM)
 
     problema = pulp.LpProblem("Otimizacao_Jornada_Aang_ILP", pulp.LpMinimize)
     x = pulp.LpVariable.dicts(

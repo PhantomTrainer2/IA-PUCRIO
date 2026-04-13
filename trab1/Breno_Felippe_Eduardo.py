@@ -223,7 +223,7 @@ def inicializar_estado_guloso(num_etapas: int, num_chars: int,
     estado = [[] for _ in range(num_etapas)]
     usos = [0] * num_chars
     
-    #Limite máximo global para garantir que ao menos 1 personagem não gaste tudo
+    #Limite máximo global
     MAX_TOTAL_USOS = (num_chars * MAX_USOS_POR_PERSONAGEM) - 1
 
     # --- Fase 1: um personagem obrigatório por etapa ---
