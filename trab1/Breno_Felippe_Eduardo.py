@@ -218,8 +218,8 @@ def inicializar_estado_guloso(num_etapas: int, num_chars: int,
     estado = [[] for _ in range(num_etapas)]
     usos = [0] * num_chars
     
-    #Limite máximo global para garantir que ao menos 1 personagem não gaste tudo
-    MAX_TOTAL_USOS = (num_chars * MAX_USOS_POR_PERSONAGEM) - 1
+    #Limite máximo global
+    MAX_TOTAL_USOS = (num_chars * MAX_USOS_POR_PERSONAGEM)
 
     # --- Fase 1: um personagem obrigatório por etapa ---
     ordem_dificuldade = sorted(range(num_etapas), key=lambda i: -dificuldades[i])
@@ -296,11 +296,11 @@ def resolver_etapas_simulated_annealing(dificuldades: list, personagens: list):
     NUM_TENTATIVAS   = 10
     
     # Limite máximo global para validação de adições
-    MAX_TOTAL_USOS = (num_chars * MAX_USOS_POR_PERSONAGEM) - 1
+    MAX_TOTAL_USOS = (num_chars * MAX_USOS_POR_PERSONAGEM)
 
     melhor_global_tempo = float('inf')
     melhor_global_estado = None
-    rng = random.Random(0)
+    rng = random.Random()
 
     for tentativa in range(NUM_TENTATIVAS):
         estado, usos = inicializar_estado_guloso(
