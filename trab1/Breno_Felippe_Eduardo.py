@@ -188,7 +188,7 @@ def calcular_tempo_etapas(estado: list, dificuldades: list, personagens: list) -
     """
     tempo_total = 0.0
     for i, grupo in enumerate(estado):
-        soma_agilidade = sum(personagens[c][1] for c in grupo)
+        soma_agilidade = sum(personagens[c][1] for c in grupo) #c é o nome do personagem
         if soma_agilidade == 0:
             return float('inf')
         tempo_total += dificuldades[i] / soma_agilidade
@@ -204,7 +204,7 @@ def calcular_agilidades_etapas(estado: list, personagens: list) -> list:
     Retorna:
     - list[float] → lista com a soma de agilidade de cada etapa
     """
-    return [sum(personagens[c][1] for c in grupo) for grupo in estado]
+    return [sum(personagens[c][1] for c in grupo) for grupo in estado] #c é o nome do personagem
 
 def inicializar_estado_guloso(num_etapas: int, num_chars: int,
                                personagens: list, dificuldades: list):
@@ -329,7 +329,7 @@ def resolver_etapas_simulated_annealing(dificuldades: list, personagens: list):
 
         while temperatura > T_FINAL:
             for _ in range(ITER_POR_T):
-                tipo_mov = rng.random()
+                tipo_mov = rng.random() #tipo mov é aleatório e é definido pelas condicoes q se enquadra
                 movimento = None
                 delta = None
 
@@ -363,8 +363,8 @@ def resolver_etapas_simulated_annealing(dificuldades: list, personagens: list):
                         continue
                     c1 = rng.choice(op_c1)
                     c2 = rng.choice(op_c2)
-                    a1 = personagens[c1][1]
-                    a2 = personagens[c2][1]
+                    a1 = personagens[c1][1] #agilidade do personagem c1
+                    a2 = personagens[c2][1] #agilidade do personagem c2
                     delta = (
                         dificuldades[e1] / (agilidades[e1] - a1 + a2)
                         - dificuldades[e1] / agilidades[e1]
@@ -420,7 +420,7 @@ def resolver_etapas_simulated_annealing(dificuldades: list, personagens: list):
                         agilidades[origem] -= agilidade_char
                         agilidades[destino] += agilidade_char
 
-                    elif tipo == "trocar":
+                    elif tipo == "trocar": #troca c1 do evento e1 para o evento e2 e faz o equivalente para c2 
                         _, e1, c1, e2, c2 = movimento
                         a1 = personagens[c1][1]
                         a2 = personagens[c2][1]
@@ -429,7 +429,7 @@ def resolver_etapas_simulated_annealing(dificuldades: list, personagens: list):
                         estado[e2].remove(c2)
                         estado[e2].append(c1)
                         agilidades[e1] += a2 - a1
-                        agilidades[e2] += a1 - a2
+                        agilidades[e2] += a1 - a2 #atualiza a agilidade para a do respectivo c
 
                     elif tipo == "inserir":
                         _, c, etapa = movimento
