@@ -1,10 +1,35 @@
 ################################################
 import pygame
+import contextlib
+import os
 import sys, time, random
-from pyswip import Prolog, Functor, Variable, Query
 
 import pathlib
-current_path = str(pathlib.Path().resolve())
+
+@contextlib.contextmanager
+def silence_native_stderr():
+    try:
+        stderr_fd = sys.stderr.fileno()
+        saved_stderr = os.dup(stderr_fd)
+        devnull = os.open(os.devnull, os.O_WRONLY)
+    except OSError:
+        yield
+        return
+
+    try:
+        os.dup2(devnull, stderr_fd)
+        yield
+    finally:
+        os.dup2(saved_stderr, stderr_fd)
+        os.close(saved_stderr)
+        os.close(devnull)
+
+with silence_native_stderr():
+    from pyswip import Prolog, Functor, Variable, Query
+
+BASE_DIR = pathlib.Path(__file__).resolve().parent
+os.chdir(BASE_DIR)
+current_path = str(BASE_DIR)
 
 elapsed_time = 0
 auto_play_tempo = 0.5
@@ -20,17 +45,44 @@ height = size_y * scale
 player_pos = (1,1,'norte')
 energia = 0
 pontuacao = 0
+game_over_reason = ""
 
 # Fila para armazenar as ações geradas pelo Algoritmo A*
 actions_queue = []
 
-mapa=[['' for _ in range(12)] for _ in range(12)]
+mapa=[['' for _ in range(size_x)] for _ in range(size_y)]
 visitados = []
 certezas = []
 
-pl_file = (current_path + '\\main.pl').replace('\\','/')
+pl_file = str(BASE_DIR / 'main.pl').replace('\\','/')
 prolog = Prolog()
 prolog.consult(pl_file)
+
+def prolog_atom(value):
+    return "'" + str(value).replace("\\", "/").replace("'", "''") + "'"
+
+def resolve_map_path(arg):
+    aliases = {
+        "facil": "mapa_facil.pl",
+        "fácil": "mapa_facil.pl",
+        "medio": "mapa_medio.pl",
+        "médio": "mapa_medio.pl",
+        "dificil": "mapa_dificil.pl",
+        "difícil": "mapa_dificil.pl",
+    }
+    map_name = aliases.get(arg.lower(), arg)
+    map_path = pathlib.Path(map_name)
+    if not map_path.is_absolute():
+        map_path = BASE_DIR / map_path
+    return map_path.resolve()
+
+def load_manual_map_from_args():
+    if len(sys.argv) <= 1:
+        return
+    map_path = resolve_map_path(sys.argv[1])
+    list(prolog.query(f"carregar_mapa_arquivo({prolog_atom(map_path)})"))
+
+load_manual_map_from_args()
 
 last_action = ""
 
@@ -52,6 +104,15 @@ def get_prolog_list(query_str, vars):
         return [tuple(res[v] for v in vars) for res in q]
     except Exception as e:
         return []
+
+def get_prolog_value(query_str, var, default=None):
+    try:
+        q = list(prolog.query(query_str))
+        if len(q) == 0:
+            return default
+        return q[0].get(var, default)
+    except Exception:
+        return default
 
 def astar(start, target, traversable):
     open_list = []
@@ -125,57 +186,106 @@ def path_to_actions(path, current_dir):
         
     return actions
 
+def memory_snapshot():
+    memory = {}
+    for res in prolog.query("memory(X,Y,Obs)"):
+        obs = set(str(item) for item in res["Obs"])
+        memory[(res["X"], res["Y"])] = obs
+    return memory
+
+def frontier_risk(cell, memory):
+    obs = memory.get(cell, set())
+    risk = 3
+    if 'brisa' in obs:
+        risk += 10
+    if 'flash' in obs:
+        risk += 8
+    if 'passos' in obs:
+        risk += 1 if energia > 55 else 5
+    if len(obs) == 0:
+        risk = 2
+    return risk
+
 def plan_astar():
     global actions_queue
     curr_x, curr_y = player_pos[0], player_pos[1]
     curr_dir = player_pos[2]
-    
-    # 1. Pega informações brutas do Prolog
+
+    gold_left = get_prolog_value("ouro_restante(N)", "N", 0)
     visited_raw = get_prolog_list("visitado(X,Y)", ['X', 'Y'])
     visited = set(visited_raw) if visited_raw else set()
     visited.add((curr_x, curr_y))
-    
-    seguras_raw = get_prolog_list("map_size(MX, MY), between(1, MX, X), between(1, MY, Y), sala_segura(X, Y)", ['X', 'Y'])
-    seguras = set(seguras_raw) if seguras_raw else set()
-    
-    # 2. Descobre a FRONTEIRA do mapa em Python puro (Evita o bug do PySwip)
-    # A fronteira são todas as casas vizinhas ao que já visitamos, mas que ainda não visitamos.
-    frontier = set()
-    for vx, vy in visited:
-        for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
-            nx, ny = vx + dx, vy + dy
-            if 1 <= nx <= 12 and 1 <= ny <= 12:
-                if (nx, ny) not in visited:
-                    frontier.add((nx, ny))
-                    
-    # 3. Cruzar fronteira com salas conhecidamente seguras
-    safe_frontier = frontier.intersection(seguras)
-    
-    if safe_frontier:
-        candidates = safe_frontier
-        print("🔍 A* buscando rota para explorar sala SEGURA...")
-    else:
-        # Se não tem segurança, o agente DEVE assumir o risco na fronteira cega para não ficar preso
-        candidates = frontier
-        print("⚠️ Encurralado! Agente assumindo o RISCO em território desconhecido...")
-        
     traversable = set(visited)
-    
+    candidate_scores = {}
+
+    if gold_left == 0:
+        candidates = {(1, 1)}
+        candidate_scores = {(1, 1): 0}
+        if (curr_x, curr_y) == (1, 1):
+            actions_queue = ['sair']
+            return
+        print("A* voltando para a saida com todos os ouros coletados.")
+    else:
+        seguras_raw = get_prolog_list("map_size(MX, MY), between(1, MX, X), between(1, MY, Y), sala_segura(X, Y)", ['X', 'Y'])
+        seguras = set(seguras_raw) if seguras_raw else set()
+
+        risco_raw = get_prolog_list("map_size(MX, MY), between(1, MX, X), between(1, MY, Y), sala_risco_controlado(X, Y)", ['X', 'Y'])
+        risco_controlado = set(risco_raw) if risco_raw else set()
+
+        frontier = set()
+        for vx, vy in visited:
+            for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+                nx, ny = vx + dx, vy + dy
+                if 1 <= nx <= size_x and 1 <= ny <= size_y:
+                    if (nx, ny) not in visited:
+                        frontier.add((nx, ny))
+
+        safe_frontier = frontier.intersection(seguras)
+        controlled_frontier = frontier.intersection(risco_controlado)
+
+        if safe_frontier:
+            candidates = safe_frontier
+            candidate_scores = {cell: 0 for cell in candidates}
+            print("A* buscando rota para uma fronteira segura.")
+        elif controlled_frontier:
+            candidates = controlled_frontier
+            candidate_scores = {cell: 1 for cell in candidates}
+            print("A* aceitando risco controlado contra inimigo.")
+        else:
+            memory = memory_snapshot()
+            candidate_scores = {
+                cell: frontier_risk(cell, memory)
+                for cell in frontier
+            }
+            candidates = set(candidate_scores)
+            if candidates:
+                print("Sem fronteira segura: A* escolhendo a menor suspeita.")
+            else:
+                candidates = set()
+                print("Sem fronteira viavel: aguardando nova informacao.")
+
     best_path = None
+    best_score = None
     for cand in candidates:
         path = astar((curr_x, curr_y), cand, traversable)
         if path:
-            if best_path is None or len(path) < len(best_path):
+            score = (candidate_scores.get(cand, 0), len(path))
+            if best_path is None or score < best_score:
                 best_path = path
-                
+                best_score = score
+
     if best_path and len(best_path) > 1:
         actions_queue = path_to_actions(best_path, curr_dir)
+    elif gold_left == 0 and best_path and best_path[-1] == (1, 1):
+        actions_queue = ['sair']
     else:
         actions_queue = ['virar_direita']
 
 # --- FIM ALGORITMO A* ---
 
 def decisao():
+    if game_over_reason != "":
+        return ""
     acao = ""    
     acoes = list(prolog.query("executa_acao(X)"))
     if len(acoes) > 0:
@@ -184,6 +294,8 @@ def decisao():
             acao = acao_raw.decode('utf-8')
         else:
             acao = str(acao_raw).strip()
+    if acao == "nenhuma":
+        return ""
     return acao
 
 def exec_prolog(a):
@@ -193,7 +305,7 @@ def exec_prolog(a):
     last_action = a
 
 def update_prolog():
-    global player_pos, mapa, energia, pontuacao,visitados, show_map
+    global player_pos, mapa, energia, pontuacao, visitados, show_map, game_over_reason
     list(prolog.query("atualiza_obs, verifica_player"))
 
     x, y, z = Variable(), Variable(), Variable()
@@ -218,15 +330,15 @@ def update_prolog():
             mapa[y.get_value()-1][x.get_value()-1] = str(z.value)
         tile_query.closeQuery()
     else:
-        for j in range(12):
-            for i in range(12):
+        for j in range(size_y):
+            for i in range(size_x):
                 mapa[j][i] = ''
         memory = Functor("memory", 3)
         memory_query = Query(memory(x,y,z))
         while memory_query.nextSolution():
             for s in z.value:
                 if str(s) == 'brisa': mapa[y.get_value()-1][x.get_value()-1] += 'P'
-                elif str(s) == 'palmas': mapa[y.get_value()-1][x.get_value()-1] += 'T'
+                elif str(s) == 'flash': mapa[y.get_value()-1][x.get_value()-1] += 'T'
                 elif str(s) == 'passos': mapa[y.get_value()-1][x.get_value()-1] += 'D'
                 elif str(s) == 'reflexo': mapa[y.get_value()-1][x.get_value()-1] += 'U'
                 elif str(s) == 'brilho': mapa[y.get_value()-1][x.get_value()-1] += 'O'
@@ -249,6 +361,16 @@ def update_prolog():
     pontuacao_query.nextSolution()
     pontuacao = x.value
     pontuacao_query.closeQuery()
+
+    status = list(prolog.query("jogo_finalizado(R)"))
+    if len(status) > 0:
+        reason = status[0]['R']
+        if isinstance(reason, bytes):
+            game_over_reason = reason.decode('utf-8')
+        else:
+            game_over_reason = str(reason)
+    else:
+        game_over_reason = ""
 
 def load():
     global sys_font, clock, img_wall, img_grass, img_start, img_finish, img_path
@@ -348,7 +470,7 @@ def update(dt, screen):
     elapsed_time += dt
     
     if (elapsed_time / 1000) > auto_play_tempo:
-        if auto_play and player_pos[2] != 'morto':
+        if auto_play and player_pos[2] != 'morto' and game_over_reason == "":
             if len(actions_queue) > 0:
                 acao = actions_queue.pop(0)
                 exec_prolog(acao)
@@ -369,7 +491,7 @@ def update(dt, screen):
 def key_pressed(event):
     global show_map
     if event.type == pygame.KEYDOWN:
-        if not auto_play and player_pos[2] != 'morto':
+        if not auto_play and player_pos[2] != 'morto' and game_over_reason == "":
             if event.key == pygame.K_LEFT: 
                 exec_prolog("virar_esquerda")
                 update_prolog()
@@ -393,36 +515,39 @@ def draw_screen(screen):
     for j in mapa:
         x = 0
         for i in j:
-            if (x+1,12-y) in visitados:
+            coord = (x+1, size_y-y)
+            confirmed = show_map or coord in certezas
+
+            if coord in visitados:
                 screen.blit(img_floor, (x * img_floor.get_width(), y * img_floor.get_height()))
             else:
                 screen.blit(bw_img_floor, (x * bw_img_floor.get_width(), y * bw_img_floor.get_height()))
 
-            if mapa[11-y][x].find('P') > -1:
-                if (x+1,12-y) in certezas: screen.blit(img_pit, (x * img_pit.get_width(), y * img_pit.get_height()))                            
+            if mapa[size_y-1-y][x].find('P') > -1:
+                if confirmed: screen.blit(img_pit, (x * img_pit.get_width(), y * img_pit.get_height()))                            
                 else: screen.blit(bw_img_pit, (x * bw_img_pit.get_width(), y * bw_img_pit.get_height()))                            
 
-            if mapa[11-y][x].find('T') > -1:
-                if (x+1,12-y) in certezas: screen.blit(img_bat, (x * img_bat.get_width(), y * img_bat.get_height()))
+            if mapa[size_y-1-y][x].find('T') > -1:
+                if confirmed: screen.blit(img_bat, (x * img_bat.get_width(), y * img_bat.get_height()))
                 else: screen.blit(bw_img_bat, (x * bw_img_bat.get_width(), y * bw_img_bat.get_height()))
 
-            if mapa[11-y][x].find('D') > -1:
-                if (x+1,12-y) in certezas: screen.blit(img_enemy1, (x * img_enemy1.get_width(), y * img_enemy1.get_height()))                                               
+            if mapa[size_y-1-y][x].find('D') > -1:
+                if confirmed: screen.blit(img_enemy1, (x * img_enemy1.get_width(), y * img_enemy1.get_height()))                                               
                 else: screen.blit(bw_img_enemy1, (x * bw_img_enemy1.get_width(), y * bw_img_enemy1.get_height()))                                               
                             
-            if mapa[11-y][x].find('d') > -1:
-                if (x+1,12-y) in certezas: screen.blit(img_enemy2, (x * img_enemy2.get_width(), y * img_enemy2.get_height()))                                               
+            if mapa[size_y-1-y][x].find('d') > -1:
+                if confirmed: screen.blit(img_enemy2, (x * img_enemy2.get_width(), y * img_enemy2.get_height()))                                               
                 else: screen.blit(bw_img_enemy2, (x * bw_img_enemy2.get_width(), y * bw_img_enemy2.get_height()))                                               
 
-            if mapa[11-y][x].find('U') > -1:
-                if (x+1,12-y) in certezas: screen.blit(img_health, (x * img_health.get_width(), y * img_health.get_height()))                               
+            if mapa[size_y-1-y][x].find('U') > -1:
+                if confirmed: screen.blit(img_health, (x * img_health.get_width(), y * img_health.get_height()))                               
                 else: screen.blit(bw_img_health, (x * bw_img_health.get_width(), y * bw_img_health.get_height()))                               
 
-            if mapa[11-y][x].find('O') > -1:
-                if (x+1,12-y) in certezas: screen.blit(img_gold, (x * img_gold.get_width(), y * img_gold.get_height()))                
+            if mapa[size_y-1-y][x].find('O') > -1:
+                if confirmed: screen.blit(img_gold, (x * img_gold.get_width(), y * img_gold.get_height()))                
                 else: screen.blit(bw_img_gold, (x * bw_img_gold.get_width(), y * bw_img_gold.get_height()))                
             
-            if x == player_pos[0] - 1  and  y == 12 - player_pos[1]:
+            if x == player_pos[0] - 1  and  y == size_y - player_pos[1]:
                 if player_pos[2] == 'norte': screen.blit(img_player_up, (x * img_player_up.get_width(), y * img_player_up.get_height()))                                               
                 elif player_pos[2] == 'sul': screen.blit(img_player_down, (x * img_player_down.get_width(), y * img_player_down.get_height()))                                               
                 elif player_pos[2] == 'leste': screen.blit(img_player_right, (x * img_player_right.get_width(), y * img_player_right.get_height()))                                               
@@ -434,7 +559,11 @@ def draw_screen(screen):
     t = sys_font.render("Pontuação: " + str(pontuacao), False, (255,255,255))
     screen.blit(t, t.get_rect(top = height + 5, left=40))
 
-    t = sys_font.render(last_action, False, (255,255,255))
+    status_text = last_action
+    if game_over_reason != "":
+        status_text = "Fim: " + game_over_reason
+
+    t = sys_font.render(status_text, False, (255,255,255))
     screen.blit(t, t.get_rect(top = height + 5, left=width/2-40))
     
     t = sys_font.render("Energia: " + str(energia), False, (255,255,255))
@@ -456,12 +585,16 @@ def main_loop(screen):
         draw_screen(screen)
         pygame.display.update() 
 
+def main():
+    update_prolog()
+    pygame.init()
+    pygame.display.set_caption('INF1771 Trabalho 2 - Agente Logico Pitfall')
+    screen = pygame.display.set_mode((width, height+30))
+    load()
+    main_loop(screen)
+    pygame.quit()
+
 update_prolog()
 
-pygame.init()
-pygame.display.set_caption('INF1771 Trabalho 2 - Agente Lógico A*')
-screen = pygame.display.set_mode((width, height+30))
-load()
-
-main_loop(screen)
-pygame.quit()
+if __name__ == "__main__":
+    main()
