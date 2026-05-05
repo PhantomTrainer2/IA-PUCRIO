@@ -667,7 +667,7 @@ sala_risco_controlado(X, Y) :-
     \+ membro(flash, Obs),
     membro(passos, Obs),
     energia(E),
-    E > 55.
+    E > 50.
 
 alvo_exploracao(X, Y) :-
     sala_segura(X, Y),
@@ -678,19 +678,49 @@ alvo_exploracao(X, Y) :-
 existe_alvo_exploracao :-
     alvo_exploracao(_, _), !.
 
-ouro_coletado :-
+fronteira(X, Y) :-
+    visitado(VX, VY),
+    adjacente_coord(VX, VY, X, Y),
+    \+ visitado(X, Y).
+
+poco_confirmado(X, Y) :-
+    certeza(X, Y),
+    memory(X, Y, Obs),
+    membro(brisa, Obs).
+
+inimigo_mortal_confirmado(X, Y) :-
+    certeza(X, Y),
+    memory(X, Y, Obs),
+    membro(passos, Obs),
+    energia(E),
+    E =< 50.
+
+bloqueio_confirmado(X, Y) :-
+    poco_confirmado(X, Y).
+bloqueio_confirmado(X, Y) :-
+    inimigo_mortal_confirmado(X, Y).
+
+fronteira_aberta(X, Y) :-
+    fronteira(X, Y),
+    \+ bloqueio_confirmado(X, Y).
+
+impossibilidade_confirmada :-
     ouro_restante(N),
-    N < 3.
+    N > 0,
+    \+ existe_alvo_exploracao,
+    fronteira(_, _),
+    \+ fronteira_aberta(_, _).
+
+impossibilidade_confirmada :-
+    ouro_restante(N),
+    N > 0,
+    \+ existe_alvo_exploracao,
+    \+ fronteira(_, _).
 
 deve_sair :-
     ouro_restante(0), !.
 deve_sair :-
-    ouro_coletado,
-    energia(E),
-    E =< 35, !.
-deve_sair :-
-    ouro_coletado,
-    \+ existe_alvo_exploracao.
+    impossibilidade_confirmada, !.
 
 dir_necessaria(X, Y, NX, Y, leste) :- NX > X.
 dir_necessaria(X, Y, NX, Y, oeste) :- NX < X.

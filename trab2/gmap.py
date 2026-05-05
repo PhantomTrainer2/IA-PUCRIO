@@ -223,7 +223,7 @@ def frontier_risk(cell, memory):
     if 'flash' in obs:
         risk += 8
     if 'passos' in obs:
-        risk += 1 if energia > 55 else 5
+        risk += 1 if energia > 50 else 5
     if len(obs) == 0:
         risk = 2
     return risk
@@ -242,6 +242,9 @@ def plan_astar():
     candidate_scores = {}
 
     if should_return:
+        seguras_raw = get_prolog_list("map_size(MX, MY), between(1, MX, X), between(1, MY, Y), sala_segura(X, Y)", ['X', 'Y'])
+        seguras = set(seguras_raw) if seguras_raw else set()
+        traversable.update(seguras)
         candidates = {(1, 1)}
         candidate_scores = {(1, 1): 0}
         if (curr_x, curr_y) == (1, 1):
@@ -276,6 +279,9 @@ def plan_astar():
             print("A* aceitando risco controlado contra inimigo.")
         else:
             memory = memory_snapshot()
+            bloqueios_raw = get_prolog_list("bloqueio_confirmado(X, Y)", ['X', 'Y'])
+            bloqueios = set(bloqueios_raw) if bloqueios_raw else set()
+            frontier = frontier.difference(bloqueios)
             candidate_scores = {
                 cell: frontier_risk(cell, memory)
                 for cell in frontier
@@ -324,8 +330,19 @@ def decisao():
 def exec_prolog(a):
     global last_action
     if a != "":
+        list(prolog.query("retractall(ultimo_evento(_))"))
         list(prolog.query(a))
     last_action = a
+
+def pos_event_requires_replan():
+    return ultimo_evento in ("flash", "impacto") or game_over_reason != ""
+
+def execute_action(a):
+    global actions_queue
+    exec_prolog(a)
+    update_prolog()
+    if pos_event_requires_replan():
+        actions_queue.clear()
 
 def update_prolog():
     global player_pos, mapa, energia, pontuacao, visitados, debug, game_over_reason, ultimo_evento
@@ -488,19 +505,16 @@ def update(dt, screen):
         if auto_play and player_pos[2] != 'morto' and game_over_reason == "":
             if len(actions_queue) > 0:
                 acao = actions_queue.pop(0)
-                exec_prolog(acao)
-                update_prolog()
+                execute_action(acao)
             else:
                 acao = decisao()
                 if acao == 'a_estrela':
                     plan_astar()
                     if len(actions_queue) > 0:
                         acao = actions_queue.pop(0)
-                        exec_prolog(acao)
-                        update_prolog()
+                        execute_action(acao)
                 elif acao != "":
-                    exec_prolog(acao)
-                    update_prolog()
+                    execute_action(acao)
         elapsed_time = 0   
 
 def key_pressed(event):
@@ -508,17 +522,13 @@ def key_pressed(event):
     if event.type == pygame.KEYDOWN:
         if not auto_play and player_pos[2] != 'morto' and game_over_reason == "":
             if event.key == pygame.K_LEFT: 
-                exec_prolog("virar_esquerda")
-                update_prolog()
+                execute_action("virar_esquerda")
             elif event.key == pygame.K_RIGHT: 
-                exec_prolog("virar_direita")
-                update_prolog()
+                execute_action("virar_direita")
             elif event.key == pygame.K_UP: 
-                exec_prolog("andar")
-                update_prolog()
+                execute_action("andar")
             if event.key == pygame.K_SPACE:
-                exec_prolog("pegar")
-                update_prolog()
+                execute_action("pegar")
         if event.key == pygame.K_m:
             debug = not debug
             update_prolog()
