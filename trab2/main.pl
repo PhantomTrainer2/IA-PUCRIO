@@ -123,30 +123,21 @@ coloca_elementos_pdf :-
 
 coloca_n(_, 0) :- !.
 coloca_n(Simbolo, N) :-
-    sorteia_casa_livre(Simbolo, X, Y),
+    sorteia_casa_livre(X, Y),
     substitui_tile(X, Y, Simbolo),
     N1 is N - 1,
     coloca_n(Simbolo, N1).
 
-sorteia_casa_livre(Simbolo, X, Y) :-
-    findall((LX,LY), casa_livre_para_elemento(Simbolo, LX, LY), Livres),
+sorteia_casa_livre(X, Y) :-
+    findall((LX,LY), casa_livre_para_elemento(LX, LY), Livres),
     tamanho(Livres, Total),
     Total > 0,
     rand_between(1, Total, Indice),
     nth1(Indice, Livres, (X,Y)).
 
-casa_livre_para_elemento(Simbolo, X, Y) :-
+casa_livre_para_elemento(X, Y) :-
     tile(X, Y, ''),
-    \+ (X = 1, Y = 1),
-    ( perigo(Simbolo) -> \+ adjacente_saida(X, Y) ; true ).
-
-perigo('P').
-perigo('T').
-perigo('D').
-perigo('d').
-
-adjacente_saida(2, 1).
-adjacente_saida(1, 2).
+    \+ (X = 1, Y = 1).
 
 garante_mapa_completo :-
     map_size(MX, MY),
