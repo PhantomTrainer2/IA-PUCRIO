@@ -25,7 +25,7 @@ def silence_native_stderr():
         os.close(devnull)
 
 with silence_native_stderr():
-    from pyswip import Prolog, Functor, Variable, Query
+    from pyswip import Prolog
 
 BASE_DIR = pathlib.Path(__file__).resolve().parent
 os.chdir(BASE_DIR)
@@ -34,18 +34,21 @@ current_path = str(BASE_DIR)
 elapsed_time = 0
 auto_play_tempo = 0.5
 auto_play = True
-show_map = False
+# Controls only the rendered map. Agent decisions continue using Prolog memory.
+debug = False
 
 scale = 60
 size_x = 12
 size_y = 12
 width = size_x * scale
 height = size_y * scale
+footer_height = 60
 
 player_pos = (1,1,'norte')
 energia = 0
 pontuacao = 0
 game_over_reason = ""
+ultimo_evento = ""
 
 # Fila para armazenar as ações geradas pelo Algoritmo A*
 actions_queue = []
@@ -60,6 +63,18 @@ prolog.consult(pl_file)
 
 def prolog_atom(value):
     return "'" + str(value).replace("\\", "/").replace("'", "''") + "'"
+
+def run_prolog_goal(goal, description):
+    try:
+        result = list(prolog.query(goal))
+    except Exception as exc:
+        raise RuntimeError(f"Falha ao {description}: {exc}") from exc
+    if not result:
+        raise RuntimeError(f"Falha ao {description}.")
+    return result
+
+def wants_random_map(arg):
+    return arg.lower() in ("aleatorio", "aleatoria", "random", "gerar")
 
 def resolve_map_path(arg):
     aliases = {
@@ -76,13 +91,14 @@ def resolve_map_path(arg):
         map_path = BASE_DIR / map_path
     return map_path.resolve()
 
-def load_manual_map_from_args():
-    if len(sys.argv) <= 1:
+def load_initial_map():
+    if len(sys.argv) <= 1 or wants_random_map(sys.argv[1]):
+        run_prolog_goal("gerar_mapa_aleatorio", "gerar mapa aleatorio")
         return
     map_path = resolve_map_path(sys.argv[1])
-    list(prolog.query(f"carregar_mapa_arquivo({prolog_atom(map_path)})"))
+    run_prolog_goal(f"carregar_mapa_arquivo({prolog_atom(map_path)})", f"carregar mapa {map_path}")
 
-load_manual_map_from_args()
+load_initial_map()
 
 last_action = ""
 
@@ -113,6 +129,12 @@ def get_prolog_value(query_str, var, default=None):
         return q[0].get(var, default)
     except Exception:
         return default
+
+def prolog_true(query_str):
+    try:
+        return len(list(prolog.query(query_str))) > 0
+    except Exception:
+        return False
 
 def astar(start, target, traversable):
     open_list = []
@@ -212,19 +234,20 @@ def plan_astar():
     curr_dir = player_pos[2]
 
     gold_left = get_prolog_value("ouro_restante(N)", "N", 0)
+    should_return = gold_left == 0 or prolog_true("deve_sair")
     visited_raw = get_prolog_list("visitado(X,Y)", ['X', 'Y'])
     visited = set(visited_raw) if visited_raw else set()
     visited.add((curr_x, curr_y))
     traversable = set(visited)
     candidate_scores = {}
 
-    if gold_left == 0:
+    if should_return:
         candidates = {(1, 1)}
         candidate_scores = {(1, 1): 0}
         if (curr_x, curr_y) == (1, 1):
             actions_queue = ['sair']
             return
-        print("A* voltando para a saida com todos os ouros coletados.")
+        print("A* voltando para a saida.")
     else:
         seguras_raw = get_prolog_list("map_size(MX, MY), between(1, MX, X), between(1, MY, Y), sala_segura(X, Y)", ['X', 'Y'])
         seguras = set(seguras_raw) if seguras_raw else set()
@@ -305,62 +328,40 @@ def exec_prolog(a):
     last_action = a
 
 def update_prolog():
-    global player_pos, mapa, energia, pontuacao, visitados, show_map, game_over_reason
-    list(prolog.query("atualiza_obs, verifica_player"))
+    global player_pos, mapa, energia, pontuacao, visitados, debug, game_over_reason, ultimo_evento
+    run_prolog_goal("atualiza_obs, verifica_player", "atualizar estado do agente")
 
-    x, y, z = Variable(), Variable(), Variable()
-    visitado = Functor("visitado", 2)
-    visitado_query = Query(visitado(x,y))
     visitados.clear()
-    while visitado_query.nextSolution():
-        visitados.append((x.value,y.value))
-    visitado_query.closeQuery()
+    for res in prolog.query("visitado(X,Y)"):
+        visitados.append((res["X"], res["Y"]))
 
-    certeza = Functor("certeza", 2)
-    certeza_query = Query(certeza(x,y))
     certezas.clear()
-    while certeza_query.nextSolution():
-        certezas.append((x.value,y.value))
-    certeza_query.closeQuery()
-        
-    if show_map:    
-        tile = Functor("tile", 3)
-        tile_query = Query(tile(x,y,z))
-        while tile_query.nextSolution():
-            mapa[y.get_value()-1][x.get_value()-1] = str(z.value)
-        tile_query.closeQuery()
+    for res in prolog.query("certeza(X,Y)"):
+        certezas.append((res["X"], res["Y"]))
+
+    for j in range(size_y):
+        for i in range(size_x):
+            mapa[j][i] = ''
+
+    if debug:
+        for res in prolog.query("tile(X,Y,Z)"):
+            mapa[res["Y"] - 1][res["X"] - 1] = str(res["Z"])
     else:
-        for j in range(size_y):
-            for i in range(size_x):
-                mapa[j][i] = ''
-        memory = Functor("memory", 3)
-        memory_query = Query(memory(x,y,z))
-        while memory_query.nextSolution():
-            for s in z.value:
-                if str(s) == 'brisa': mapa[y.get_value()-1][x.get_value()-1] += 'P'
-                elif str(s) == 'flash': mapa[y.get_value()-1][x.get_value()-1] += 'T'
-                elif str(s) == 'passos': mapa[y.get_value()-1][x.get_value()-1] += 'D'
-                elif str(s) == 'reflexo': mapa[y.get_value()-1][x.get_value()-1] += 'U'
-                elif str(s) == 'brilho': mapa[y.get_value()-1][x.get_value()-1] += 'O'
-        memory_query.closeQuery()
+        for res in prolog.query("memory(X,Y,Obs)"):
+            x, y = res["X"], res["Y"]
+            for s in res["Obs"]:
+                if str(s) == 'brisa': mapa[y-1][x-1] += 'P'
+                elif str(s) == 'flash': mapa[y-1][x-1] += 'T'
+                elif str(s) == 'passos': mapa[y-1][x-1] += 'D'
+                elif str(s) == 'reflexo': mapa[y-1][x-1] += 'U'
+                elif str(s) == 'brilho': mapa[y-1][x-1] += 'O'
 
-    posicao = Functor("posicao", 3)
-    position_query = Query(posicao(x,y,z))
-    position_query.nextSolution()
-    player_pos = (x.value,y.value,str(z.value))
-    position_query.closeQuery()
+    posicoes = run_prolog_goal("posicao(X,Y,D)", "ler posicao do agente")
+    pos = posicoes[0]
+    player_pos = (pos["X"], pos["Y"], str(pos["D"]))
 
-    energia_func = Functor("energia", 1)
-    energia_query = Query(energia_func(x))
-    energia_query.nextSolution()
-    energia = x.value
-    energia_query.closeQuery()
-
-    pontuacao_func = Functor("pontuacao", 1)
-    pontuacao_query = Query(pontuacao_func(x))
-    pontuacao_query.nextSolution()
-    pontuacao = x.value
-    pontuacao_query.closeQuery()
+    energia = run_prolog_goal("energia(E)", "ler energia")[0]["E"]
+    pontuacao = run_prolog_goal("pontuacao(P)", "ler pontuacao")[0]["P"]
 
     status = list(prolog.query("jogo_finalizado(R)"))
     if len(status) > 0:
@@ -372,6 +373,20 @@ def update_prolog():
     else:
         game_over_reason = ""
 
+    eventos = list(prolog.query("ultimo_evento(E)"))
+    if len(eventos) > 0:
+        evento = eventos[0]['E']
+        if isinstance(evento, bytes):
+            ultimo_evento = evento.decode('utf-8')
+        else:
+            ultimo_evento = str(evento)
+    else:
+        ultimo_evento = ""
+
+def load_image(path):
+    with silence_native_stderr():
+        return pygame.image.load(path)
+
 def load():
     global sys_font, clock, img_wall, img_grass, img_start, img_finish, img_path
     global img_gold,img_health, img_pit, img_bat, img_enemy1, img_enemy2,img_floor
@@ -381,87 +396,87 @@ def load():
     sys_font = pygame.font.Font(pygame.font.get_default_font(), 20)
     clock = pygame.time.Clock() 
 
-    img_wall = pygame.image.load('wall.jpg')
+    img_wall = load_image('wall.jpg')
     img_wall_size = (width/size_x, height/size_y)
     img_wall = pygame.transform.scale(img_wall, img_wall_size)
 
-    img_player_up = pygame.image.load('player_up.png')
+    img_player_up = load_image('player_up.png')
     img_player_up_size = (width/size_x, height/size_y)
     img_player_up = pygame.transform.scale(img_player_up, img_player_up_size)
 
-    img_player_down = pygame.image.load('player_down.png')
+    img_player_down = load_image('player_down.png')
     img_player_down_size = (width/size_x, height/size_y)
     img_player_down = pygame.transform.scale(img_player_down, img_player_down_size)
 
-    img_player_left = pygame.image.load('player_left.png')
+    img_player_left = load_image('player_left.png')
     img_player_left_size = (width/size_x, height/size_y)
     img_player_left = pygame.transform.scale(img_player_left, img_player_left_size)
 
-    img_player_right = pygame.image.load('player_right.png')
+    img_player_right = load_image('player_right.png')
     img_player_right_size = (width/size_x, height/size_y)
     img_player_right = pygame.transform.scale(img_player_right, img_player_right_size)
 
-    img_tomb = pygame.image.load('tombstone.png')
+    img_tomb = load_image('tombstone.png')
     img_tomb_size = (width/size_x, height/size_y)
     img_tomb = pygame.transform.scale(img_tomb, img_tomb_size)
 
-    img_grass = pygame.image.load('grass.jpg')
+    img_grass = load_image('grass.jpg')
     img_grass_size = (width/size_x, height/size_y)
     img_grass = pygame.transform.scale(img_grass, img_grass_size)
 
-    img_floor = pygame.image.load('floor.png')
+    img_floor = load_image('floor.png')
     img_floor_size = (width/size_x, height/size_y)
     img_floor = pygame.transform.scale(img_floor, img_floor_size)
 
-    img_gold = pygame.image.load('gold.png')
+    img_gold = load_image('gold.png')
     img_gold_size = (width/size_x, height/size_y)
     img_gold = pygame.transform.scale(img_gold, img_gold_size)
 
-    img_pit = pygame.image.load('pit.png')
+    img_pit = load_image('pit.png')
     img_pit_size = (width/size_x, height/size_y)
     img_pit = pygame.transform.scale(img_pit, img_pit_size)
 
-    img_enemy1 = pygame.image.load('enemy1.png')
+    img_enemy1 = load_image('enemy1.png')
     img_enemy1_size = (width/size_x, height/size_y)
     img_enemy1 = pygame.transform.scale(img_enemy1, img_enemy1_size)
 
-    img_enemy2 = pygame.image.load('enemy2.png')
+    img_enemy2 = load_image('enemy2.png')
     img_enemy2_size = (width/size_x, height/size_y)
     img_enemy2 = pygame.transform.scale(img_enemy2, img_enemy2_size)
 
-    img_bat = pygame.image.load('bat.png')
+    img_bat = load_image('bat.png')
     img_bat_size = (width/size_x, height/size_y)
     img_bat = pygame.transform.scale(img_bat, img_bat_size)
 
-    img_health = pygame.image.load('health.png')
+    img_health = load_image('health.png')
     img_health_size = (width/size_x, height/size_y)
     img_health = pygame.transform.scale(img_health, img_health_size)    
     
-    bw_img_floor = pygame.image.load('bw_floor.png')
+    bw_img_floor = load_image('bw_floor.png')
     bw_img_floor_size = (width/size_x, height/size_y)
     bw_img_floor = pygame.transform.scale(bw_img_floor, bw_img_floor_size)
 
-    bw_img_gold = pygame.image.load('bw_gold.png')
+    bw_img_gold = load_image('bw_gold.png')
     bw_img_gold_size = (width/size_x, height/size_y)
     bw_img_gold = pygame.transform.scale(bw_img_gold, bw_img_gold_size)
 
-    bw_img_pit = pygame.image.load('bw_pit.png')
+    bw_img_pit = load_image('bw_pit.png')
     bw_img_pit_size = (width/size_x, height/size_y)
     bw_img_pit = pygame.transform.scale(bw_img_pit, bw_img_pit_size)
 
-    bw_img_enemy1 = pygame.image.load('bw_enemy1.png')
+    bw_img_enemy1 = load_image('bw_enemy1.png')
     bw_img_enemy1_size = (width/size_x, height/size_y)
     bw_img_enemy1 = pygame.transform.scale(bw_img_enemy1, bw_img_enemy1_size)
 
-    bw_img_enemy2 = pygame.image.load('bw_enemy2.png')
+    bw_img_enemy2 = load_image('bw_enemy2.png')
     bw_img_enemy2_size = (width/size_x, height/size_y)
     bw_img_enemy2 = pygame.transform.scale(bw_img_enemy2, bw_img_enemy2_size)
 
-    bw_img_bat = pygame.image.load('bw_bat.png')
+    bw_img_bat = load_image('bw_bat.png')
     bw_img_bat_size = (width/size_x, height/size_y)
     bw_img_bat = pygame.transform.scale(bw_img_bat, bw_img_bat_size)
 
-    bw_img_health = pygame.image.load('bw_health.png')
+    bw_img_health = load_image('bw_health.png')
     bw_img_health_size = (width/size_x, height/size_y)
     bw_img_health = pygame.transform.scale(bw_img_health, bw_img_health_size)  
 
@@ -489,7 +504,7 @@ def update(dt, screen):
         elapsed_time = 0   
 
 def key_pressed(event):
-    global show_map
+    global debug
     if event.type == pygame.KEYDOWN:
         if not auto_play and player_pos[2] != 'morto' and game_over_reason == "":
             if event.key == pygame.K_LEFT: 
@@ -505,7 +520,7 @@ def key_pressed(event):
                 exec_prolog("pegar")
                 update_prolog()
         if event.key == pygame.K_m:
-            show_map = not show_map
+            debug = not debug
             update_prolog()
 
 
@@ -516,7 +531,7 @@ def draw_screen(screen):
         x = 0
         for i in j:
             coord = (x+1, size_y-y)
-            confirmed = show_map or coord in certezas
+            confirmed = debug or coord in certezas
 
             if coord in visitados:
                 screen.blit(img_floor, (x * img_floor.get_width(), y * img_floor.get_height()))
@@ -559,7 +574,7 @@ def draw_screen(screen):
     t = sys_font.render("Pontuação: " + str(pontuacao), False, (255,255,255))
     screen.blit(t, t.get_rect(top = height + 5, left=40))
 
-    status_text = last_action
+    status_text = "Acao: " + (last_action if last_action else "-")
     if game_over_reason != "":
         status_text = "Fim: " + game_over_reason
 
@@ -568,6 +583,17 @@ def draw_screen(screen):
     
     t = sys_font.render("Energia: " + str(energia), False, (255,255,255))
     screen.blit(t, t.get_rect(top = height + 5, left=width-140))
+
+    plano = " > ".join(str(a) for a in actions_queue[:8])
+    if len(actions_queue) > 8:
+        plano += " > ..."
+    if plano == "":
+        plano = "-"
+    info_text = "Evento: " + (ultimo_evento if ultimo_evento else "-") + "    Plano: " + plano
+    if len(info_text) > 92:
+        info_text = info_text[:89] + "..."
+    t = sys_font.render(info_text, False, (255,255,255))
+    screen.blit(t, t.get_rect(top = height + 32, left=40))
 
 def main_loop(screen):  
     global clock
@@ -589,7 +615,7 @@ def main():
     update_prolog()
     pygame.init()
     pygame.display.set_caption('INF1771 Trabalho 2 - Agente Logico Pitfall')
-    screen = pygame.display.set_mode((width, height+30))
+    screen = pygame.display.set_mode((width, height+footer_height))
     load()
     main_loop(screen)
     pygame.quit()

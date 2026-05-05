@@ -20,7 +20,7 @@ reset_game :-
     mapa_atual(Arquivo), !,
     carregar_mapa_arquivo(Arquivo).
 reset_game :-
-    carregar_mapa_arquivo('mapa_facil.pl').
+    gerar_mapa_aleatorio.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Utilitarios locais
@@ -103,6 +103,51 @@ carregar_mapa_arquivo(Arquivo) :-
     garante_mapa_completo,
     reset_estado_agente.
 
+gerar_mapa_aleatorio :-
+    retractall(tile(_,_,_)),
+    retractall(map_size(_,_)),
+    retractall(mapa_atual(_)),
+    inicia_semente,
+    assertz(map_size(12, 12)),
+    garante_mapa_completo,
+    coloca_elementos_pdf,
+    reset_estado_agente.
+
+coloca_elementos_pdf :-
+    coloca_n('P', 8),
+    coloca_n('O', 3),
+    coloca_n('U', 3),
+    coloca_n('T', 4),
+    coloca_n('D', 2),
+    coloca_n('d', 2).
+
+coloca_n(_, 0) :- !.
+coloca_n(Simbolo, N) :-
+    sorteia_casa_livre(Simbolo, X, Y),
+    substitui_tile(X, Y, Simbolo),
+    N1 is N - 1,
+    coloca_n(Simbolo, N1).
+
+sorteia_casa_livre(Simbolo, X, Y) :-
+    findall((LX,LY), casa_livre_para_elemento(Simbolo, LX, LY), Livres),
+    tamanho(Livres, Total),
+    Total > 0,
+    rand_between(1, Total, Indice),
+    nth1(Indice, Livres, (X,Y)).
+
+casa_livre_para_elemento(Simbolo, X, Y) :-
+    tile(X, Y, ''),
+    \+ (X = 1, Y = 1),
+    ( perigo(Simbolo) -> \+ adjacente_saida(X, Y) ; true ).
+
+perigo('P').
+perigo('T').
+perigo('D').
+perigo('d').
+
+adjacente_saida(2, 1).
+adjacente_saida(1, 2).
+
 garante_mapa_completo :-
     map_size(MX, MY),
     forall((between(1, MX, X), between(1, MY, Y)), garante_tile(X, Y)).
@@ -117,6 +162,7 @@ conta_tile(Simbolo, Quantidade) :-
     tamanho(Casas, Quantidade).
 
 mapa_atende_pdf :-
+    map_size(12, 12),
     conta_tile('P', 8),
     conta_tile('O', 3),
     conta_tile('U', 3),
@@ -180,7 +226,6 @@ verifica_saida.
 
 sair :-
     \+ jogo_finalizado(_),
-    ouro_restante(0),
     posicao(1, 1, _),
     finaliza(saiu), !.
 sair :-
@@ -219,6 +264,7 @@ enfrenta_inimigo(X, Y, Dano) :-
     substitui_tile(X, Y, ''),
     set_real(X, Y),
     atualiza_energia(-Dano),
+    atualiza_pontuacao(-Dano),
     energia(E),
     ( E =:= 0 ->
         atualiza_pontuacao(-1000),
@@ -632,6 +678,20 @@ alvo_exploracao(X, Y) :-
 existe_alvo_exploracao :-
     alvo_exploracao(_, _), !.
 
+ouro_coletado :-
+    ouro_restante(N),
+    N < 3.
+
+deve_sair :-
+    ouro_restante(0), !.
+deve_sair :-
+    ouro_coletado,
+    energia(E),
+    E =< 35, !.
+deve_sair :-
+    ouro_coletado,
+    \+ existe_alvo_exploracao.
+
 dir_necessaria(X, Y, NX, Y, leste) :- NX > X.
 dir_necessaria(X, Y, NX, Y, oeste) :- NX < X.
 dir_necessaria(X, Y, X, NY, norte) :- NY > Y.
@@ -660,10 +720,10 @@ executa_acao(pegar) :-
     memory(X, Y, Obs),
     (membro(brilho, Obs); membro(reflexo, Obs)), !.
 executa_acao(sair) :-
-    ouro_restante(0),
-    posicao(1, 1, _), !.
+    posicao(1, 1, _),
+    deve_sair, !.
 executa_acao(a_estrela) :-
-    ouro_restante(0), !.
+    deve_sair, !.
 executa_acao(Acao) :-
     posicao(X, Y, DirAtual),
     adjacente_coord(X, Y, NX, NY),
@@ -681,5 +741,3 @@ executa_acao(Acao) :-
 executa_acao(a_estrela) :-
     existe_alvo_exploracao, !.
 executa_acao(a_estrela).
-
-:- reset_game.
