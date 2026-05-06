@@ -285,6 +285,9 @@ def plan_astar():
             return
         print("A* voltando para a saida.")
     else:
+        powerup_raw = get_prolog_list("alvo_powerup(X, Y)", ['X', 'Y'])
+        powerups = set(powerup_raw) if powerup_raw else set()
+
         seguras_raw = get_prolog_list("map_size(MX, MY), between(1, MX, X), between(1, MY, Y), sala_segura(X, Y)", ['X', 'Y'])
         seguras = set(seguras_raw) if seguras_raw else set()
 
@@ -298,7 +301,11 @@ def plan_astar():
         enemy_frontier = frontier.intersection(inimigo_arriscavel)
         bat_frontier = frontier.intersection(morcego_arriscado)
 
-        if safe_frontier:
+        if powerups:
+            candidates = powerups
+            candidate_scores = {cell: 0 for cell in candidates}
+            print("A* buscando powerup conhecido para recuperar energia.")
+        elif safe_frontier:
             candidates = safe_frontier
             candidate_scores = {cell: 0 for cell in candidates}
             print("A* buscando rota para uma fronteira segura.")

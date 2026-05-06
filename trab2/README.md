@@ -30,7 +30,8 @@ A tecla `M` alterna apenas a visualizacao: com `debug = True` mostra o mapa real
 ## Politica do agente
 
 - O agente so tenta sair pela posicao `[1,1]` depois de pegar os 3 ouros (`ouro_restante(0)`).
-- Enquanto ainda houver ouro, a prioridade de exploracao e: caminho 100% seguro, inimigo arriscavel quando ha energia para sobreviver a pelo menos um inimigo, morcego apenas quando nao ha inimigo arriscavel, e por ultimo as demais suspeitas.
+- Enquanto ainda houver ouro, a prioridade de exploracao e: qualquer caminho 100% seguro conhecido, inimigo arriscavel quando ha energia para sobreviver a pelo menos um inimigo, morcego apenas quando nao ha inimigo arriscavel, e por ultimo as demais suspeitas.
+- Powerups conhecidos sao guardados quando a energia esta alta e buscados quando a energia cai para 80 ou menos, para aproveitar completamente a recuperacao de +20.
 - Pocos/obstaculos continuam sendo o maior risco, pois causam morte instantanea. Morcegos sao evitados porque podem teletransportar o agente para um poco.
 
 Mapa Fácil

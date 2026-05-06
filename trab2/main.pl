@@ -42,6 +42,13 @@ intersecao([H|T], L, [H|R]) :-
 intersecao([_|T], L, R) :-
     intersecao(T, L, R).
 
+remove_membro(_, [], []).
+remove_membro(X, [X|T], R) :-
+    !,
+    remove_membro(X, T, R).
+remove_membro(X, [H|T], [H|R]) :-
+    remove_membro(X, T, R).
+
 unicos([], []).
 unicos([H|T], R) :-
     membro(H, T), !,
@@ -189,6 +196,10 @@ decrementa_ouro :-
     (N1 < 0 -> N2 = 0 ; N2 = N1),
     retractall(ouro_restante(_)),
     assertz(ouro_restante(N2)).
+
+energia_para_powerup :-
+    energia(E),
+    E =< 80.
 
 registra_evento(Evento) :-
     retractall(ultimo_evento(_)),
@@ -384,10 +395,17 @@ pegar :-
     \+ jogo_finalizado(_),
     posicao(X, Y, _),
     tile(X, Y, 'U'),
+    energia_para_powerup,
     substitui_tile(X, Y, ''),
     atualiza_pontuacao(-1),
     atualiza_energia(20),
     set_real(X, Y), !.
+pegar :-
+    \+ jogo_finalizado(_),
+    posicao(X, Y, _),
+    tile(X, Y, 'U'),
+    atualiza_pontuacao(-1),
+    registra_evento(powerup_guardado), !.
 pegar :-
     \+ jogo_finalizado(_),
     atualiza_pontuacao(-1),
@@ -432,6 +450,7 @@ atualiza_obs :-
     observacoes(LO),
     iter_pos_list(LP, LO),
     observacao_certeza,
+    observacao_explicada,
     observacao_vazia.
 
 adj_cand_obs(L) :-
@@ -485,6 +504,36 @@ observacao_certeza(Z) :-
       assertz(certeza(XX,YY)), !
     ; true
     ).
+
+perigo_confirmado_adjacente(Z, X, Y) :-
+    adjacente(X, Y),
+    certeza(X, Y),
+    memory(X, Y, Obs),
+    membro(Z, Obs).
+
+observacao_explicada :-
+    observacoes(LO),
+    observacao_explicada(LO).
+observacao_explicada([]) :- !.
+observacao_explicada([Z|T]) :-
+    remove_observacao_explicada(Z),
+    observacao_explicada(T).
+
+remove_observacao_explicada(Z) :-
+    perigo_confirmado_adjacente(Z, _, _), !,
+    forall(
+        ( adjacente(X, Y),
+          \+ visitado(X, Y),
+          \+ perigo_confirmado_adjacente(Z, X, Y),
+          memory(X, Y, Obs),
+          membro(Z, Obs)
+        ),
+        ( remove_membro(Z, Obs, NovoObs),
+          retractall(memory(X, Y, _)),
+          assertz(memory(X, Y, NovoObs))
+        )
+    ).
+remove_observacao_explicada(_).
 
 observacao_vazia :-
     adj_cand_obs(LP),
@@ -684,9 +733,24 @@ sala_morcego_arriscado(X, Y) :-
     \+ membro(passos, Obs),
     membro(flash, Obs).
 
-alvo_exploracao(X, Y) :-
+alvo_seguro(X, Y) :-
     sala_segura(X, Y),
     \+ visitado(X, Y).
+
+existe_alvo_seguro :-
+    alvo_seguro(_, _), !.
+
+alvo_powerup(X, Y) :-
+    energia_para_powerup,
+    visitado(X, Y),
+    memory(X, Y, Obs),
+    membro(reflexo, Obs).
+
+existe_alvo_powerup :-
+    alvo_powerup(_, _), !.
+
+alvo_exploracao(X, Y) :-
+    alvo_seguro(X, Y).
 alvo_exploracao(X, Y) :-
     sala_risco_controlado(X, Y).
 alvo_exploracao(X, Y) :-
@@ -765,12 +829,19 @@ executa_acao(nenhuma) :-
 executa_acao(pegar) :-
     posicao(X, Y, _),
     memory(X, Y, Obs),
-    (membro(brilho, Obs); membro(reflexo, Obs)), !.
+    membro(brilho, Obs), !.
+executa_acao(pegar) :-
+    posicao(X, Y, _),
+    memory(X, Y, Obs),
+    membro(reflexo, Obs),
+    energia_para_powerup, !.
 executa_acao(sair) :-
     posicao(1, 1, _),
     deve_sair, !.
 executa_acao(a_estrela) :-
     deve_sair, !.
+executa_acao(a_estrela) :-
+    existe_alvo_powerup, !.
 executa_acao(Acao) :-
     posicao(X, Y, DirAtual),
     adjacente_coord(X, Y, NX, NY),
@@ -778,6 +849,8 @@ executa_acao(Acao) :-
     sala_segura(NX, NY),
     dir_necessaria(X, Y, NX, NY, DirAlvo),
     (DirAtual = DirAlvo -> Acao = andar ; acao_virar(DirAtual, DirAlvo, Acao)), !.
+executa_acao(a_estrela) :-
+    existe_alvo_seguro, !.
 executa_acao(Acao) :-
     posicao(X, Y, DirAtual),
     adjacente_coord(X, Y, NX, NY),
