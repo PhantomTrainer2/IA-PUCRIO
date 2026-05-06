@@ -428,7 +428,7 @@ def update_prolog():
             for s in res["Obs"]:
                 if str(s) == 'brisa': mapa[y-1][x-1] += 'P'
                 elif str(s) == 'flash': mapa[y-1][x-1] += 'T'
-                elif str(s) == 'passos': mapa[y-1][x-1] += 'D'
+                elif str(s) == 'passos': mapa[y-1][x-1] += 'I'
                 elif str(s) == 'reflexo': mapa[y-1][x-1] += 'U'
                 elif str(s) == 'brilho': mapa[y-1][x-1] += 'O'
 
@@ -463,10 +463,20 @@ def load_image(path):
     with silence_native_stderr():
         return pygame.image.load(path)
 
+def make_enemy_unknown_image(left_img, right_img):
+    tile_w, tile_h = left_img.get_size()
+    half_w = tile_w // 2
+    img = pygame.Surface((tile_w, tile_h), pygame.SRCALPHA)
+    left = pygame.transform.smoothscale(left_img, (half_w, tile_h))
+    right = pygame.transform.smoothscale(right_img, (tile_w - half_w, tile_h))
+    img.blit(left, (0, 0))
+    img.blit(right, (half_w, 0))
+    return img
+
 def load():
     global sys_font, clock, img_wall, img_grass, img_start, img_finish, img_path
-    global img_gold,img_health, img_pit, img_bat, img_enemy1, img_enemy2,img_floor
-    global bw_img_gold,bw_img_health, bw_img_pit, bw_img_bat, bw_img_enemy1, bw_img_enemy2,bw_img_floor
+    global img_gold,img_health, img_pit, img_bat, img_enemy1, img_enemy2, img_enemy_unknown, img_floor
+    global bw_img_gold,bw_img_health, bw_img_pit, bw_img_bat, bw_img_enemy1, bw_img_enemy2, bw_img_enemy_unknown, bw_img_floor
     global img_player_up, img_player_down, img_player_left, img_player_right, img_tomb
 
     sys_font = pygame.font.Font(pygame.font.get_default_font(), 20)
@@ -520,6 +530,8 @@ def load():
     img_enemy2_size = (width/size_x, height/size_y)
     img_enemy2 = pygame.transform.scale(img_enemy2, img_enemy2_size)
 
+    img_enemy_unknown = make_enemy_unknown_image(img_enemy1, img_enemy2)
+
     img_bat = load_image('bat.png')
     img_bat_size = (width/size_x, height/size_y)
     img_bat = pygame.transform.scale(img_bat, img_bat_size)
@@ -547,6 +559,8 @@ def load():
     bw_img_enemy2 = load_image('bw_enemy2.png')
     bw_img_enemy2_size = (width/size_x, height/size_y)
     bw_img_enemy2 = pygame.transform.scale(bw_img_enemy2, bw_img_enemy2_size)
+
+    bw_img_enemy_unknown = make_enemy_unknown_image(bw_img_enemy1, bw_img_enemy2)
 
     bw_img_bat = load_image('bw_bat.png')
     bw_img_bat_size = (width/size_x, height/size_y)
@@ -622,6 +636,10 @@ def draw_screen(screen):
             if mapa[size_y-1-y][x].find('d') > -1:
                 if confirmed: screen.blit(img_enemy2, (x * img_enemy2.get_width(), y * img_enemy2.get_height()))                                               
                 else: screen.blit(bw_img_enemy2, (x * bw_img_enemy2.get_width(), y * bw_img_enemy2.get_height()))                                               
+
+            if mapa[size_y-1-y][x].find('I') > -1:
+                if confirmed: screen.blit(img_enemy_unknown, (x * img_enemy_unknown.get_width(), y * img_enemy_unknown.get_height()))
+                else: screen.blit(bw_img_enemy_unknown, (x * bw_img_enemy_unknown.get_width(), y * bw_img_enemy_unknown.get_height()))
 
             if mapa[size_y-1-y][x].find('U') > -1:
                 if confirmed: screen.blit(img_health, (x * img_health.get_width(), y * img_health.get_height()))                               
