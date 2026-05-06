@@ -101,6 +101,7 @@ carregar_mapa_arquivo(Arquivo) :-
     inicia_semente,
     (map_size(_,_) -> true ; assertz(map_size(12, 12))),
     garante_mapa_completo,
+    mapa_atende_pdf,
     reset_estado_agente.
 
 gerar_mapa_aleatorio :-
@@ -217,6 +218,7 @@ verifica_saida.
 
 sair :-
     \+ jogo_finalizado(_),
+    ouro_restante(0),
     posicao(1, 1, _),
     finaliza(saiu), !.
 sair :-
@@ -660,11 +662,37 @@ sala_risco_controlado(X, Y) :-
     energia(E),
     E > 50.
 
+sala_inimigo_arriscavel(X, Y) :-
+    map_size(MX, MY),
+    between(1, MX, X),
+    between(1, MY, Y),
+    \+ visitado(X, Y),
+    memory(X, Y, Obs),
+    \+ membro(brisa, Obs),
+    \+ membro(flash, Obs),
+    membro(passos, Obs),
+    energia(E),
+    E > 20.
+
+sala_morcego_arriscado(X, Y) :-
+    map_size(MX, MY),
+    between(1, MX, X),
+    between(1, MY, Y),
+    \+ visitado(X, Y),
+    memory(X, Y, Obs),
+    \+ membro(brisa, Obs),
+    \+ membro(passos, Obs),
+    membro(flash, Obs).
+
 alvo_exploracao(X, Y) :-
     sala_segura(X, Y),
     \+ visitado(X, Y).
 alvo_exploracao(X, Y) :-
     sala_risco_controlado(X, Y).
+alvo_exploracao(X, Y) :-
+    sala_inimigo_arriscavel(X, Y).
+alvo_exploracao(X, Y) :-
+    sala_morcego_arriscado(X, Y).
 
 existe_alvo_exploracao :-
     alvo_exploracao(_, _), !.
@@ -684,7 +712,7 @@ inimigo_mortal_confirmado(X, Y) :-
     memory(X, Y, Obs),
     membro(passos, Obs),
     energia(E),
-    E =< 50.
+    E =< 20.
 
 bloqueio_confirmado(X, Y) :-
     poco_confirmado(X, Y).
@@ -710,8 +738,6 @@ impossibilidade_confirmada :-
 
 deve_sair :-
     ouro_restante(0), !.
-deve_sair :-
-    impossibilidade_confirmada, !.
 
 dir_necessaria(X, Y, NX, Y, leste) :- NX > X.
 dir_necessaria(X, Y, NX, Y, oeste) :- NX < X.
@@ -757,6 +783,13 @@ executa_acao(Acao) :-
     adjacente_coord(X, Y, NX, NY),
     \+ visitado(NX, NY),
     sala_risco_controlado(NX, NY),
+    dir_necessaria(X, Y, NX, NY, DirAlvo),
+    (DirAtual = DirAlvo -> Acao = andar ; acao_virar(DirAtual, DirAlvo, Acao)), !.
+executa_acao(Acao) :-
+    posicao(X, Y, DirAtual),
+    adjacente_coord(X, Y, NX, NY),
+    \+ visitado(NX, NY),
+    sala_inimigo_arriscavel(NX, NY),
     dir_necessaria(X, Y, NX, NY, DirAlvo),
     (DirAtual = DirAlvo -> Acao = andar ; acao_virar(DirAtual, DirAlvo, Acao)), !.
 executa_acao(a_estrela) :-

@@ -27,6 +27,12 @@ python gmap.py mapa_dificil.pl
 
 A tecla `M` alterna apenas a visualizacao: com `debug = True` mostra o mapa real completo; com `debug = False` mostra a interpretacao do agente. Isso nao altera a tomada de decisao.
 
+## Politica do agente
+
+- O agente so tenta sair pela posicao `[1,1]` depois de pegar os 3 ouros (`ouro_restante(0)`).
+- Enquanto ainda houver ouro, a prioridade de exploracao e: caminho 100% seguro, inimigo arriscavel quando ha energia para sobreviver a pelo menos um inimigo, morcego apenas quando nao ha inimigo arriscavel, e por ultimo as demais suspeitas.
+- Pocos/obstaculos continuam sendo o maior risco, pois causam morte instantanea. Morcegos sao evitados porque podem teletransportar o agente para um poco.
+
 Mapa Fácil
 ![Mapa Fácil](mapa-facil.png)
 

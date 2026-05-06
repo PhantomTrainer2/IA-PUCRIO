@@ -215,18 +215,49 @@ def memory_snapshot():
         memory[(res["X"], res["Y"])] = obs
     return memory
 
+def frontier_from_visited(visited):
+    frontier = set()
+    for vx, vy in visited:
+        for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+            nx, ny = vx + dx, vy + dy
+            if 1 <= nx <= size_x and 1 <= ny <= size_y:
+                if (nx, ny) not in visited:
+                    frontier.add((nx, ny))
+    return frontier
+
 def frontier_risk(cell, memory):
-    obs = memory.get(cell, set())
-    risk = 3
-    if 'brisa' in obs:
-        risk += 10
-    if 'flash' in obs:
-        risk += 8
-    if 'passos' in obs:
-        risk += 1 if energia > 50 else 5
+    if cell not in memory:
+        return 30
+
+    obs = memory[cell]
     if len(obs) == 0:
-        risk = 2
+        return 0
+
+    risk = 0
+    if 'brisa' in obs:
+        risk += 100
+    if 'flash' in obs:
+        risk += 40 if energia > 20 else 10
+    if 'passos' in obs:
+        if energia > 50:
+            risk += 5
+        elif energia > 20:
+            risk += 15
+        else:
+            risk += 60
     return risk
+
+def choose_best_path(start, candidates, traversable, candidate_scores):
+    best_path = None
+    best_score = None
+    for cand in candidates:
+        path = astar(start, cand, traversable)
+        if path:
+            score = (candidate_scores.get(cand, 0), len(path))
+            if best_path is None or score < best_score:
+                best_path = path
+                best_score = score
+    return best_path, best_score
 
 def plan_astar():
     global actions_queue
@@ -234,12 +265,14 @@ def plan_astar():
     curr_dir = player_pos[2]
 
     gold_left = get_prolog_value("ouro_restante(N)", "N", 0)
-    should_return = gold_left == 0 or prolog_true("deve_sair")
+    should_return = gold_left == 0
     visited_raw = get_prolog_list("visitado(X,Y)", ['X', 'Y'])
     visited = set(visited_raw) if visited_raw else set()
     visited.add((curr_x, curr_y))
     traversable = set(visited)
     candidate_scores = {}
+    memory = memory_snapshot()
+    frontier = frontier_from_visited(visited)
 
     if should_return:
         seguras_raw = get_prolog_list("map_size(MX, MY), between(1, MX, X), between(1, MY, Y), sala_segura(X, Y)", ['X', 'Y'])
@@ -255,33 +288,35 @@ def plan_astar():
         seguras_raw = get_prolog_list("map_size(MX, MY), between(1, MX, X), between(1, MY, Y), sala_segura(X, Y)", ['X', 'Y'])
         seguras = set(seguras_raw) if seguras_raw else set()
 
-        risco_raw = get_prolog_list("map_size(MX, MY), between(1, MX, X), between(1, MY, Y), sala_risco_controlado(X, Y)", ['X', 'Y'])
-        risco_controlado = set(risco_raw) if risco_raw else set()
+        inimigo_raw = get_prolog_list("map_size(MX, MY), between(1, MX, X), between(1, MY, Y), sala_inimigo_arriscavel(X, Y)", ['X', 'Y'])
+        inimigo_arriscavel = set(inimigo_raw) if inimigo_raw else set()
 
-        frontier = set()
-        for vx, vy in visited:
-            for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
-                nx, ny = vx + dx, vy + dy
-                if 1 <= nx <= size_x and 1 <= ny <= size_y:
-                    if (nx, ny) not in visited:
-                        frontier.add((nx, ny))
+        morcego_raw = get_prolog_list("map_size(MX, MY), between(1, MX, X), between(1, MY, Y), sala_morcego_arriscado(X, Y)", ['X', 'Y'])
+        morcego_arriscado = set(morcego_raw) if morcego_raw else set()
 
         safe_frontier = frontier.intersection(seguras)
-        controlled_frontier = frontier.intersection(risco_controlado)
+        enemy_frontier = frontier.intersection(inimigo_arriscavel)
+        bat_frontier = frontier.intersection(morcego_arriscado)
 
         if safe_frontier:
             candidates = safe_frontier
             candidate_scores = {cell: 0 for cell in candidates}
             print("A* buscando rota para uma fronteira segura.")
-        elif controlled_frontier:
-            candidates = controlled_frontier
-            candidate_scores = {cell: 1 for cell in candidates}
-            print("A* aceitando risco controlado contra inimigo.")
+        elif enemy_frontier:
+            candidates = enemy_frontier
+            candidate_scores = {
+                cell: frontier_risk(cell, memory)
+                for cell in candidates
+            }
+            print("A* aceitando risco contra inimigo antes de morcego.")
+        elif bat_frontier:
+            candidates = bat_frontier
+            candidate_scores = {
+                cell: frontier_risk(cell, memory)
+                for cell in candidates
+            }
+            print("A* sem inimigo sobrevivivel: apostando no morcego.")
         else:
-            memory = memory_snapshot()
-            bloqueios_raw = get_prolog_list("bloqueio_confirmado(X, Y)", ['X', 'Y'])
-            bloqueios = set(bloqueios_raw) if bloqueios_raw else set()
-            frontier = frontier.difference(bloqueios)
             candidate_scores = {
                 cell: frontier_risk(cell, memory)
                 for cell in frontier
@@ -293,15 +328,32 @@ def plan_astar():
                 candidates = set()
                 print("Sem fronteira viavel: aguardando nova informacao.")
 
-    best_path = None
-    best_score = None
-    for cand in candidates:
-        path = astar((curr_x, curr_y), cand, traversable)
-        if path:
-            score = (candidate_scores.get(cand, 0), len(path))
-            if best_path is None or score < best_score:
-                best_path = path
-                best_score = score
+    best_path, best_score = choose_best_path((curr_x, curr_y), candidates, traversable, candidate_scores)
+
+    if should_return and best_path is None:
+        seguras_raw = get_prolog_list("map_size(MX, MY), between(1, MX, X), between(1, MY, Y), sala_segura(X, Y)", ['X', 'Y'])
+        seguras = set(seguras_raw) if seguras_raw else set()
+        safe_frontier = frontier.intersection(seguras)
+        inimigo_raw = get_prolog_list("map_size(MX, MY), between(1, MX, X), between(1, MY, Y), sala_inimigo_arriscavel(X, Y)", ['X', 'Y'])
+        enemy_frontier = frontier.intersection(set(inimigo_raw) if inimigo_raw else set())
+        morcego_raw = get_prolog_list("map_size(MX, MY), between(1, MX, X), between(1, MY, Y), sala_morcego_arriscado(X, Y)", ['X', 'Y'])
+        bat_frontier = frontier.intersection(set(morcego_raw) if morcego_raw else set())
+
+        if safe_frontier:
+            candidates = safe_frontier
+            candidate_scores = {cell: 0 for cell in candidates}
+        elif enemy_frontier:
+            candidates = enemy_frontier
+            candidate_scores = {cell: frontier_risk(cell, memory) for cell in candidates}
+        elif bat_frontier:
+            candidates = bat_frontier
+            candidate_scores = {cell: frontier_risk(cell, memory) for cell in candidates}
+        else:
+            candidates = frontier
+            candidate_scores = {cell: frontier_risk(cell, memory) for cell in candidates}
+        best_path, best_score = choose_best_path((curr_x, curr_y), candidates, set(visited), candidate_scores)
+        if best_path:
+            print("A* sem rota segura para a saida: abrindo caminho pelo menor risco.")
 
     if best_path and len(best_path) > 1:
         actions_queue = path_to_actions(best_path, curr_dir)
