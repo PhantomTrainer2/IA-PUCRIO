@@ -199,7 +199,11 @@ decrementa_ouro :-
 
 energia_para_powerup :-
     energia(E),
-    E =< 80.
+    E =< 20.
+
+energia_sobrevive_inimigo_comum :-
+    energia(E),
+    E > 50.
 
 registra_evento(Evento) :-
     retractall(ultimo_evento(_)),
@@ -700,16 +704,7 @@ sala_segura(X, Y) :-
     ).
 
 sala_risco_controlado(X, Y) :-
-    map_size(MX, MY),
-    between(1, MX, X),
-    between(1, MY, Y),
-    \+ visitado(X, Y),
-    memory(X, Y, Obs),
-    \+ membro(brisa, Obs),
-    \+ membro(flash, Obs),
-    membro(passos, Obs),
-    energia(E),
-    E > 50.
+    sala_inimigo_arriscavel(X, Y).
 
 sala_inimigo_arriscavel(X, Y) :-
     map_size(MX, MY),
@@ -720,8 +715,16 @@ sala_inimigo_arriscavel(X, Y) :-
     \+ membro(brisa, Obs),
     \+ membro(flash, Obs),
     membro(passos, Obs),
-    energia(E),
-    E > 20.
+    energia_sobrevive_inimigo_comum.
+
+existe_alvo_inimigo_arriscavel :-
+    sala_inimigo_arriscavel(_, _), !.
+
+teletransporte_ultimo_recurso :-
+    energia_para_powerup, !.
+teletransporte_ultimo_recurso :-
+    \+ existe_alvo_seguro,
+    \+ existe_alvo_inimigo_arriscavel.
 
 sala_morcego_arriscado(X, Y) :-
     map_size(MX, MY),
@@ -731,7 +734,8 @@ sala_morcego_arriscado(X, Y) :-
     memory(X, Y, Obs),
     \+ membro(brisa, Obs),
     \+ membro(passos, Obs),
-    membro(flash, Obs).
+    membro(flash, Obs),
+    teletransporte_ultimo_recurso.
 
 alvo_seguro(X, Y) :-
     sala_segura(X, Y),
@@ -776,7 +780,7 @@ inimigo_mortal_confirmado(X, Y) :-
     memory(X, Y, Obs),
     membro(passos, Obs),
     energia(E),
-    E =< 20.
+    E =< 50.
 
 bloqueio_confirmado(X, Y) :-
     poco_confirmado(X, Y).

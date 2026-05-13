@@ -36,6 +36,8 @@ auto_play_tempo = 0.5
 auto_play = True
 # Controls only the rendered map. Agent decisions continue using Prolog memory.
 debug = False
+LOW_ENERGY_LIMIT = 20
+COMMON_ENEMY_MAX_DAMAGE = 50
 
 scale = 60
 size_x = 12
@@ -227,7 +229,7 @@ def frontier_from_visited(visited):
 
 def frontier_risk(cell, memory):
     if cell not in memory:
-        return 30
+        return 300
 
     obs = memory[cell]
     if len(obs) == 0:
@@ -235,16 +237,14 @@ def frontier_risk(cell, memory):
 
     risk = 0
     if 'brisa' in obs:
-        risk += 100
+        risk += 1000
     if 'flash' in obs:
-        risk += 40 if energia > 20 else 10
+        risk += 500
     if 'passos' in obs:
-        if energia > 50:
-            risk += 5
-        elif energia > 20:
-            risk += 15
+        if energia > COMMON_ENEMY_MAX_DAMAGE:
+            risk += 10
         else:
-            risk += 60
+            risk += 700
     return risk
 
 def choose_best_path(start, candidates, traversable, candidate_scores):
@@ -322,7 +322,10 @@ def plan_astar():
                 cell: frontier_risk(cell, memory)
                 for cell in candidates
             }
-            print("A* sem inimigo sobrevivivel: apostando no morcego.")
+            if energia <= LOW_ENERGY_LIMIT:
+                print("A* sem energia para inimigo comum: ultimo recurso no morcego.")
+            else:
+                print("A* sem rota segura ou inimigo sobrevivivel: ultimo recurso no morcego.")
         else:
             candidate_scores = {
                 cell: frontier_risk(cell, memory)
