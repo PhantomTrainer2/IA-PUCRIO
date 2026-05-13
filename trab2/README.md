@@ -32,6 +32,7 @@ A tecla `M` alterna apenas a visualizacao: com `debug = True` mostra o mapa real
 - O agente so tenta sair pela posicao `[1,1]` depois de pegar os 3 ouros (`ouro_restante(0)`).
 - Enquanto ainda houver ouro, a prioridade de exploracao e: qualquer caminho 100% seguro conhecido, inimigo comum apenas quando a energia permite sobreviver ao maior dano possivel, morcego/teletransporte somente como ultimo recurso, e por ultimo suspeita de poco.
 - Powerups conhecidos sao guardados quando a energia esta alta e buscados quando a energia cai para 20 ou menos.
+- Quando nao existe fronteira segura, inimigo sobrevivivel ou teletransporte de ultimo recurso, o agente nao avanca para uma suspeita proibida apenas por ser a "menos ruim".
 - Suspeitas de inimigo sao exibidas como inimigo desconhecido, porque o sensor `passos` nao diferencia o inimigo de dano 20 do inimigo de dano 50. O tipo real so aparece no modo debug.
 - Pocos/obstaculos continuam sendo o maior risco, pois causam morte instantanea. Morcegos sao evitados porque podem teletransportar o agente para um poco.
 

@@ -327,16 +327,9 @@ def plan_astar():
             else:
                 print("A* sem rota segura ou inimigo sobrevivivel: ultimo recurso no morcego.")
         else:
-            candidate_scores = {
-                cell: frontier_risk(cell, memory)
-                for cell in frontier
-            }
-            candidates = set(candidate_scores)
-            if candidates:
-                print("Sem fronteira segura: A* escolhendo a menor suspeita.")
-            else:
-                candidates = set()
-                print("Sem fronteira viavel: aguardando nova informacao.")
+            candidates = set()
+            candidate_scores = {}
+            print("Sem fronteira permitida pela politica de risco.")
 
     best_path, best_score = choose_best_path((curr_x, curr_y), candidates, traversable, candidate_scores)
 
@@ -359,8 +352,8 @@ def plan_astar():
             candidates = bat_frontier
             candidate_scores = {cell: frontier_risk(cell, memory) for cell in candidates}
         else:
-            candidates = frontier
-            candidate_scores = {cell: frontier_risk(cell, memory) for cell in candidates}
+            candidates = set()
+            candidate_scores = {}
         best_path, best_score = choose_best_path((curr_x, curr_y), candidates, set(visited), candidate_scores)
         if best_path:
             print("A* sem rota segura para a saida: abrindo caminho pelo menor risco.")
@@ -370,7 +363,7 @@ def plan_astar():
     elif gold_left == 0 and best_path and best_path[-1] == (1, 1):
         actions_queue = ['sair']
     else:
-        actions_queue = ['virar_direita']
+        actions_queue = []
 
 # --- FIM ALGORITMO A* ---
 

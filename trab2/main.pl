@@ -871,4 +871,9 @@ executa_acao(Acao) :-
     (DirAtual = DirAlvo -> Acao = andar ; acao_virar(DirAtual, DirAlvo, Acao)), !.
 executa_acao(a_estrela) :-
     existe_alvo_exploracao, !.
+executa_acao(nenhuma) :-
+    ouro_restante(N),
+    N > 0,
+    \+ existe_alvo_powerup,
+    \+ existe_alvo_exploracao, !.
 executa_acao(a_estrela).
