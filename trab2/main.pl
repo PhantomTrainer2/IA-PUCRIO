@@ -1,3 +1,7 @@
+%% Breno Pinheiro Gallo de Sá - 2110183
+%% Felippe Petrasso Fonseca Hübner - 210870
+%% Eduardo Vasques Zacour - 1611696
+
 :- dynamic posicao/3.
 :- dynamic memory/3.
 :- dynamic visitado/2.
