@@ -453,6 +453,15 @@ observacao_adj(flash, L) :- membro('T', L).
 observacao_adj(passos, L) :- membro('D', L).
 observacao_adj(passos, L) :- membro('d', L).
 
+percepcao_atual(Obs) :-
+    adjacentes(LA),
+    findall(PAdj, observacao_adj(PAdj, LA), RawAdj),
+    posicao(X, Y, _),
+    tile(X, Y, Z),
+    findall(PLoc, observacao_loc(PLoc, [Z]), RawLoc),
+    append(RawLoc, RawAdj, Raw),
+    unicos(Raw, Obs).
+
 atualiza_obs :-
     adj_cand_obs(LP),
     observacoes(LO),

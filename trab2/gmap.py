@@ -54,9 +54,11 @@ energia = 0
 pontuacao = 0
 game_over_reason = ""
 ultimo_evento = ""
+percepcao_atual = []
 
 # Fila para armazenar as ações geradas pelo Algoritmo A*
 actions_queue = []
+display_plan = []
 
 mapa=[['' for _ in range(size_x)] for _ in range(size_y)]
 visitados = []
@@ -140,6 +142,30 @@ def prolog_true(query_str):
         return len(list(prolog.query(query_str))) > 0
     except Exception:
         return False
+
+def prolog_to_str(value):
+    if isinstance(value, bytes):
+        return value.decode('utf-8')
+    return str(value).strip()
+
+def set_display_plan(actions):
+    global display_plan
+    display_plan = [str(a) for a in actions if str(a).strip() != ""]
+
+def format_event_text():
+    items = []
+    if ultimo_evento:
+        items.append(ultimo_evento)
+    items.extend(percepcao_atual)
+
+    unique_items = []
+    for item in items:
+        if item and item not in unique_items:
+            unique_items.append(item)
+
+    if len(unique_items) == 0:
+        return "-"
+    return ", ".join(unique_items)
 
 def astar(start, target, traversable):
     open_list = []
@@ -376,11 +402,7 @@ def decisao():
     acao = ""    
     acoes = list(prolog.query("executa_acao(X)"))
     if len(acoes) > 0:
-        acao_raw = acoes[0]['X']
-        if isinstance(acao_raw, bytes):
-            acao = acao_raw.decode('utf-8')
-        else:
-            acao = str(acao_raw).strip()
+        acao = prolog_to_str(acoes[0]['X'])
     if acao == "nenhuma":
         return ""
     return acao
@@ -401,9 +423,10 @@ def execute_action(a):
     update_prolog()
     if pos_event_requires_replan():
         actions_queue.clear()
+        set_display_plan([])
 
 def update_prolog():
-    global player_pos, mapa, energia, pontuacao, visitados, debug, game_over_reason, ultimo_evento
+    global player_pos, mapa, energia, pontuacao, visitados, debug, game_over_reason, ultimo_evento, percepcao_atual
     run_prolog_goal("atualiza_obs, verifica_player", "atualizar estado do agente")
 
     visitados.clear()
@@ -440,23 +463,20 @@ def update_prolog():
 
     status = list(prolog.query("jogo_finalizado(R)"))
     if len(status) > 0:
-        reason = status[0]['R']
-        if isinstance(reason, bytes):
-            game_over_reason = reason.decode('utf-8')
-        else:
-            game_over_reason = str(reason)
+        game_over_reason = prolog_to_str(status[0]['R'])
     else:
         game_over_reason = ""
 
     eventos = list(prolog.query("ultimo_evento(E)"))
     if len(eventos) > 0:
-        evento = eventos[0]['E']
-        if isinstance(evento, bytes):
-            ultimo_evento = evento.decode('utf-8')
-        else:
-            ultimo_evento = str(evento)
+        ultimo_evento = prolog_to_str(eventos[0]['E'])
     else:
         ultimo_evento = ""
+
+    percepcao_atual = []
+    percepcoes = list(prolog.query("percepcao_atual(Obs)"))
+    if len(percepcoes) > 0:
+        percepcao_atual = [prolog_to_str(item) for item in percepcoes[0]["Obs"]]
 
 def load_image(path):
     with silence_native_stderr():
@@ -577,6 +597,7 @@ def update(dt, screen):
         if auto_play and player_pos[2] != 'morto' and game_over_reason == "":
             if len(actions_queue) > 0:
                 acao = actions_queue.pop(0)
+                set_display_plan([acao] + actions_queue)
                 execute_action(acao)
             else:
                 acao = decisao()
@@ -584,9 +605,15 @@ def update(dt, screen):
                     plan_astar()
                     if len(actions_queue) > 0:
                         acao = actions_queue.pop(0)
+                        set_display_plan([acao] + actions_queue)
                         execute_action(acao)
+                    else:
+                        set_display_plan([])
                 elif acao != "":
+                    set_display_plan([acao])
                     execute_action(acao)
+                else:
+                    set_display_plan([])
         elapsed_time = 0   
 
 def key_pressed(event):
@@ -594,12 +621,16 @@ def key_pressed(event):
     if event.type == pygame.KEYDOWN:
         if not auto_play and player_pos[2] != 'morto' and game_over_reason == "":
             if event.key == pygame.K_LEFT: 
+                set_display_plan(["virar_esquerda"])
                 execute_action("virar_esquerda")
             elif event.key == pygame.K_RIGHT: 
+                set_display_plan(["virar_direita"])
                 execute_action("virar_direita")
             elif event.key == pygame.K_UP: 
+                set_display_plan(["andar"])
                 execute_action("andar")
             if event.key == pygame.K_SPACE:
+                set_display_plan(["pegar"])
                 execute_action("pegar")
         if event.key == pygame.K_m:
             debug = not debug
@@ -670,12 +701,12 @@ def draw_screen(screen):
     t = sys_font.render("Energia: " + str(energia), False, (255,255,255))
     screen.blit(t, t.get_rect(top = height + 5, left=width-140))
 
-    plano = " > ".join(str(a) for a in actions_queue[:8])
-    if len(actions_queue) > 8:
+    plano = " > ".join(str(a) for a in display_plan[:8])
+    if len(display_plan) > 8:
         plano += " > ..."
     if plano == "":
         plano = "-"
-    info_text = "Evento: " + (ultimo_evento if ultimo_evento else "-") + "    Plano: " + plano
+    info_text = "Evento: " + format_event_text() + "    Plano: " + plano
     if len(info_text) > 92:
         info_text = info_text[:89] + "..."
     t = sys_font.render(info_text, False, (255,255,255))
