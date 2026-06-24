@@ -8,14 +8,25 @@ log em tela das acoes realizadas.
 
 O agente combina:
 
-- Maquina de estados: coleta item, combate, exploracao e desempate local.
+- Maquina de estados: defesa (fuga de dano), combate, coleta, caca de tesouro,
+  exploracao e desempate local.
 - Representacao logica do conhecimento: celulas visitadas, seguras, bloqueadas,
   possiveis pocos, possiveis teleportes, possiveis inimigos e itens percebidos.
-- Busca em largura ponderada por risco: a fronteira mais promissora e escolhida
-  evitando celulas com brisa/flash quando existe alternativa segura.
+- Busca ponderada por risco: a fronteira mais promissora e escolhida tratando
+  celulas com brisa/flash como bloqueio absoluto (cair encerra a partida).
+- Busca dirigida (A*) a tesouros/powerups memorizados e ainda nao coletados.
 
 Essa politica respeita a restricao de nao acessar o mapa real. O agente usa
 apenas sensores e comandos disponibilizados pelo protocolo.
+
+Comportamentos adicionais:
+
+- Reage ao sensor `damage`: recua para sair da linha de tiro.
+- Limita tiros seguidos sem `hit` para nao gastar pontos atirando no vazio.
+- Le energia (comando `q`) periodicamente e fica defensivo quando baixa,
+  priorizando powerups.
+- Detecta teletransporte (salto grande de posicao) e descarta tesouros
+  memorizados que ficaram distantes.
 
 Quando o servidor informa a posicao com `p`, o agente sincroniza a coordenada
 real. Se um movimento bem-sucedido muda a coordenada em uma casa, a orientacao
@@ -49,14 +60,26 @@ Use `--crlf` se o servidor/devkit exigir comandos terminados por `\r\n`.
 
 ## Validacao local
 
-Os testes cobrem parser de observacoes, parser de posicao, atualizacao do mapa
-mental e decisoes prioritarias do agente:
+Os testes cobrem parser de observacoes, parser de posicao/energia, atualizacao
+do mapa mental, decisoes prioritarias do agente e regressao dos bugs corrigidos
+(acumulo de risco, bloqueio de poco/teleporte, fuga por dano, caca de tesouro,
+deteccao de teleporte). Sao 25 testes no total:
 
 ```bash
 python -m unittest discover -s . -p "test_*.py"
 ```
 
 Nao ha dependencias externas alem da biblioteca padrao do Python.
+
+## Como executar
+
+Veja `HowToRun.md` para o passo a passo completo (pre-requisitos, opcoes de
+linha de comando, leitura do log e troubleshooting). Resumo:
+
+```bash
+python agent.py                  # servidor oficial (atari.icad.puc-rio.br:8888)
+python agent.py --verbose --max-steps 200
+```
 
 ## Alterando taticas
 

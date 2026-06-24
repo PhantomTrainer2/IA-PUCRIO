@@ -31,15 +31,21 @@ python agent.py --verbose --max-steps 200
 
 Arquivo principal: `agent.py`.
 
-- Bloco de constantes no topo: pesos de risco, cooldown de tiro e tolerancia a
-  perigo.
+- Bloco de constantes no topo: pesos de risco, bloqueio duro de poco/teleporte,
+  cooldown de tiro, reacao a dano, limite de energia e tolerancia a perigo.
 - `Observation.parse`: interpreta sensores recebidos do servidor.
 - `KnowledgeMap.update_from_observation`: atualiza o mapa mental com breeze,
-  flash, steps, enemy e luzes.
+  flash, steps, enemy e luzes. Tem o parametro `persist` (volatil x permanente).
+- `KnowledgeMap.is_hard_avoided`: bloqueio absoluto de celulas suspeitas de
+  poco/teleporte (cair encerra a partida).
 - `KnowledgeMap.plan_to_frontier`: escolhe uma fronteira para explorar.
+- `KnowledgeMap.plan_to_target`: busca A* dirigida a um tesouro memorizado.
 - `DroneBrain.decide`: ordem de prioridade da tatica.
+- `DroneBrain.observe_combat_signals`: atualiza contadores de combate (dano,
+  tiros sem acerto) a cada observacao.
 - `DroneBrain.should_pick_item`: decide se deve pegar redLight, blueLight,
   weaklight ou greenLight.
+- `parse_energy`: le a energia do user status (comando `q`).
 - `DroneAgent.play`: ciclo principal de observar, decidir, agir, sincronizar e
   registrar log.
 
@@ -91,10 +97,13 @@ A ordem principal fica em `DroneBrain.decide`.
 
 Padrao atual:
 
-1. Atira se detectar inimigo na mira.
-2. Pega item bom ou incerto.
-3. Explora fronteira segura ou de risco tolerado.
-4. Usa menor risco local como fallback.
+1. Foge (re) se levou dano recentemente e nao tem inimigo na mira.
+2. Atira se ha inimigo na mira, respeitando cooldown, limite de tiros sem
+   acerto e energia suficiente.
+3. Pega item bom ou incerto da celula atual.
+4. Caca o tesouro/powerup memorizado mais proximo (busca dirigida).
+5. Explora fronteira segura ou de risco tolerado.
+6. Usa menor risco local como fallback.
 
 Para testar outra tatica, reordene os blocos desse metodo. Evite alterar o
 protocolo em `DroneProtocol`, porque ele e a parte que conversa com o servidor.
@@ -151,7 +160,10 @@ if self.should_pick_item(obs):
 ```
 
 Risco: explorar areas com `breeze` ou `flash` aumenta chance de cair em poco ou
-ser teletransportado.
+ser teletransportado. (Nota: com `HARD_AVOID_PIT`/`HARD_AVOID_TELEPORT` ligados,
+o agente nunca pisa em celulas suspeitas; bandas altas em
+`EXPLORATION_RISK_BANDS` so aumentam a tolerancia a celulas incertas, nao a
+pocos. Para arriscar poco mesmo, desligue os `HARD_AVOID_*`.)
 
 ## Tatica 3: focar em atirar em players
 
@@ -188,7 +200,10 @@ if obs.has("steps") and self.step_count % 3 != 0:
 ```
 
 Risco: combate custa energia se outros agentes atirarem primeiro, e `steps` nao
-informa a posicao exata.
+informa a posicao exata. (Nota: o exemplo acima substitui o bloco de combate
+padrao, que por seguranca so atira com energia acima de `LOW_ENERGY_THRESHOLD` e
+ate `MAX_SHOTS_WITHOUT_HIT` tiros sem `hit`. Ao usar a tatica hunter, voce abre
+mao dessa protecao e pode gastar -10 por tiro no vazio.)
 
 ## Tatica 4: coletor ganancioso
 
