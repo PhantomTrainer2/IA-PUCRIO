@@ -36,12 +36,37 @@ RISK_ENEMY = 8
 RISK_UNKNOWN = 2
 RISK_LOCAL_TURN_PENALTY = 5
 RISK_VISIT_PENALTY_CAP = 5
-EXPLORATION_RISK_BANDS = (0, 10, 45, 90)
+# Cair em poco/teleporte encerra a partida (PDF pag.3). Por isso a busca de
+# exploracao nunca aceita celulas com evidencia de poco/teleporte: as bandas
+# abaixo cobrem apenas risco "incerto" (RISK_UNKNOWN) e de inimigo, nunca o
+# risco de poço/teleporte, que precisa ser tratado como bloqueio.
+EXPLORATION_RISK_BANDS = (0, 10, 20)
 SHOOT_COOLDOWN_STEPS = 1
 ENEMY_SENSOR_RADIUS = 2
 ENEMY_IN_SIGHT_WEIGHT = 5
 PICK_WEAKLIGHT = True
 PICK_GREENLIGHT = False
+# Garante de forma absoluta que a busca nunca planeja passar por uma celula que
+# possa ser poco ou teleporte. A busca so cruza celulas seguras ou visitadas;
+# a fronteira (destino) pode ser incerta, mas nunca suspeita de poco/teleporte.
+HARD_AVOID_PIT = True
+HARD_AVOID_TELEPORT = True
+# -- Combate/defesa (PDF pag.2-4) ----------------------------------------------
+# Ao receber dano sem inimigo na mira, o agente reage: recua/vira para sair da
+# linha de tiro. Levou dano = -10 por hit e risco de morte (-10 e fim de jogo).
+REACT_TO_DAMAGE = True
+DAMAGE_FLEE_TURNS = 2  # por quantos turnos persistir a fuga apos levar dano
+# Limite de tiros seguidos sem confirmar hit: evita gastar -10 atirando no vazio
+# se o inimigo saiu da mira entre observacoes.
+MAX_SHOTS_WITHOUT_HIT = 3
+# Limiar de energia (0..100) abaixo do qual o agente fica defensivo (procura
+# powerup e evita combate). Ler energia exige o comando de user status (q).
+LOW_ENERGY_THRESHOLD = 35
+# Raio (em passos) para "lembrar" tesouros avistados e prioriza-los na busca.
+TREASURE_MEMORY_RADIUS = 6
+# De quantos em quantos passos reler o user status (energia). Custa uma acao de
+# rede, entao nao fazemos todo turno. O hit de dano tbm e detectado via observer.
+ENERGY_CHECK_EVERY = 5
 
 
 class Action(enum.Enum):
@@ -241,6 +266,9 @@ class KnowledgeMap:
         self.pending_action: Optional[Action] = None
         self.pending_from: Optional[Position] = None
         self.pending_to: Optional[Position] = None
+        # Memoria de itens avistados e ainda nao coletados (tesouros/powerups).
+        # Chaveado por posicao -> tipo, para priorizar busca de tesouros.
+        self.spotted_items: dict[Position, str] = {}
         self.cell(start).safe = True
         self.cell(start).safe_from_pit = True
         self.cell(start).safe_from_teleport = True
@@ -286,6 +314,42 @@ class KnowledgeMap:
         cell.blocked = True
         cell.safe = False
         cell.item = None
+        # Uma parede nunca teve item; remove da memoria de tesouros por seguranca.
+        self.spotted_items.pop(pos, None)
+
+    def _remember_item(self, pos: Position, kind: Optional[str]) -> None:
+        """Memoriza itens avistados (tesouro/powerup) para priorizar a busca.
+
+        Tesouros (blueLight) e powerups (redLight) valem muitos pontos; vale a
+        pena lembrar onde foram vistos e ainda nao coletados. weaklight e
+        incerto, mas pode ser tesouro, entao tambem lembramos. Veneno e ignorado.
+        """
+        if kind in {"treasure", "powerup", "unknown"}:
+            self.spotted_items[pos] = kind
+        elif kind is None:
+            # Sem luz nesta celula: se ja tinhamos lembrado de algo aqui e nao
+            # pegamos, provavelmente sumiu ou foi coletado por outro agente.
+            self.spotted_items.pop(pos, None)
+
+    def forget_item(self, pos: Position) -> None:
+        self.spotted_items.pop(pos, None)
+
+    def nearest_spotted_item(
+        self, kinds: tuple[str, ...] = ("treasure",)
+    ) -> Optional[Position]:
+        """Posicao memorizada mais proxima (Manhattan) de um item do tipo dado."""
+        best: Optional[Position] = None
+        best_dist = TREASURE_MEMORY_RADIUS + 1
+        for pos, kind in self.spotted_items.items():
+            if kind not in kinds:
+                continue
+            dist = manhattan(self.pos, pos)
+            if dist == 0:
+                continue
+            if dist < best_dist:
+                best_dist = dist
+                best = pos
+        return best
 
     def prepare_action(self, action: Action) -> None:
         self.pending_action = action
@@ -310,6 +374,7 @@ class KnowledgeMap:
                 self.pos = old_pos
                 self.mark_wall(target)
             elif synced_pos is not None:
+                self._handle_teleport_if_needed(old_pos, target, synced_pos)
                 self._infer_heading_from_move(action, old_pos, synced_pos)
                 self.pos = synced_pos
                 self.bounded = True
@@ -323,6 +388,7 @@ class KnowledgeMap:
 
         if action == Action.GET_ITEM:
             self.cell(self.pos).item = None
+            self.forget_item(self.pos)
 
         self.pending_action = None
         self.pending_from = None
@@ -342,16 +408,52 @@ class KnowledgeMap:
         elif action == Action.BACKWARD:
             self.heading = moved.back()
 
-    def update_from_observation(self, obs: Observation) -> None:
+    def _handle_teleport_if_needed(
+        self, old_pos: Position, target: Position, synced_pos: Position
+    ) -> None:
+        """Detecta teletransporte e limpa a memoria de itens distantes.
+
+        Ao pisar num teleporte, o servidor joga o agente numa posicao aleatoria
+        (PDF pag.3). Detectamos isso quando a posicao sincronizada esta muito
+        longe do destino esperado do movimento. Nesse caso a heading inferida
+        nao e confiavel e os tesouros memorizados longe ficam obsoletos, entao
+        apagamos itens que nao estao mais proximos da nova posicao.
+        """
+        if manhattan(synced_pos, target) <= 1:
+            return  # movimento normal, nao foi teleporte
+        # Teleporte confirmado: descarta itens memorizados agora distantes.
+        self.spotted_items = {
+            pos: kind
+            for pos, kind in self.spotted_items.items()
+            if manhattan(synced_pos, pos) <= TREASURE_MEMORY_RADIUS
+        }
+
+    def update_from_observation(self, obs: Observation, persist: bool = True) -> None:
+        """Atualiza o mapa mental a partir de uma observacao.
+
+        Quando ``persist`` e False, apenas lemos os sensores para alimentar a
+        decisao sem gravar evidencia permanente no mapa. Isso evita que a
+        observacao pre-acao (feita so para decidir) seja somada a observacao
+        pos-acao, dobrando a evidencia de risco a cada passo.
+        """
         current = self.cell(self.pos)
-        current.visited = True
-        current.visits += 1
-        current.safe = True
-        current.safe_from_pit = True
-        current.safe_from_teleport = True
-        current.possible_pit = 0
-        current.possible_teleport = 0
-        current.item = obs.item_kind
+        if persist:
+            current.visited = True
+            current.visits += 1
+            current.safe = True
+            current.safe_from_pit = True
+            current.safe_from_teleport = True
+            current.possible_pit = 0
+            current.possible_teleport = 0
+            current.item = obs.item_kind
+            self._remember_item(self.pos, obs.item_kind)
+        else:
+            current.item = obs.item_kind or current.item
+
+        if not persist:
+            # Observacao "volatil" (so para decidir): nao propaga risco para os
+            # vizinhos. O risco permanente e gravado uma unica vez apos a acao.
+            return
 
         adjacent = self.neighbors(self.pos)
 
@@ -359,7 +461,10 @@ class KnowledgeMap:
             for pos in adjacent:
                 cell = self.cell(pos)
                 if not cell.visited and not cell.safe_from_pit and not cell.blocked:
-                    cell.possible_pit += 1
+                    # Evidencia (booleana/limitada): usar max evita acumulo
+                    # infinito quando o agente fica parado na mesma celula
+                    # (combate, camping, observacao).
+                    cell.possible_pit = max(cell.possible_pit, 1)
         else:
             for pos in adjacent:
                 cell = self.cell(pos)
@@ -374,7 +479,7 @@ class KnowledgeMap:
                     and not cell.safe_from_teleport
                     and not cell.blocked
                 ):
-                    cell.possible_teleport += 1
+                    cell.possible_teleport = max(cell.possible_teleport, 1)
         else:
             for pos in adjacent:
                 cell = self.cell(pos)
@@ -390,7 +495,7 @@ class KnowledgeMap:
             for pos in self.cells_within_manhattan(self.pos, ENEMY_SENSOR_RADIUS):
                 cell = self.cell(pos)
                 if not cell.visited and not cell.blocked:
-                    cell.possible_enemy += 1
+                    cell.possible_enemy = max(cell.possible_enemy, 1)
         else:
             for pos in self.cells_within_manhattan(self.pos, ENEMY_SENSOR_RADIUS):
                 self.cell(pos).possible_enemy = 0
@@ -400,18 +505,50 @@ class KnowledgeMap:
             for _ in range(obs.enemy_distance):
                 enemy_pos = add_pos(enemy_pos, self.heading.delta)
             if self.in_bounds(enemy_pos):
-                self.cell(enemy_pos).possible_enemy += ENEMY_IN_SIGHT_WEIGHT
+                self.cell(enemy_pos).possible_enemy = max(
+                    self.cell(enemy_pos).possible_enemy, ENEMY_IN_SIGHT_WEIGHT
+                )
 
     def movement_risk(self, pos: Position) -> int:
         if not self.in_bounds(pos):
             return 10_000
         return self.cell(pos).risk()
 
+    def is_hard_avoided(self, pos: Position) -> bool:
+        """Celulas suspeitas de poco/teleporte nunca devem ser pisadas.
+
+        Cair em poco ou teleporte encerra a partida (PDF pag.3), com penalidade
+        de -1000 no caso do poco. Por isso tratamos qualquer celula com evidencia
+        de poco/teleporte como bloqueio absoluto na busca, independente do risco
+        numerico. As flags permitem relaxar isso em testes.
+        """
+        if not self.in_bounds(pos):
+            return True
+        cell = self.cell(pos)
+        if HARD_AVOID_PIT and cell.possible_pit > 0 and not cell.safe_from_pit:
+            return True
+        if (
+            HARD_AVOID_TELEPORT
+            and cell.possible_teleport > 0
+            and not cell.safe_from_teleport
+        ):
+            return True
+        return False
+
     def passable_for_planning(self, pos: Position, max_risk: int) -> bool:
-        return self.in_bounds(pos) and self.movement_risk(pos) <= max_risk
+        if not self.in_bounds(pos):
+            return False
+        if self.is_hard_avoided(pos):
+            return False
+        return self.movement_risk(pos) <= max_risk
 
     def plan_to_frontier(self, max_risk: int) -> list[Position]:
-        """Return a path from current position to a useful unvisited cell."""
+        """Return a path from current position to a useful unvisited cell.
+
+        O caminho so atravessa celulas seguras/visitadas e nunca suspeitas de
+        poco/teleporte. A fronteira (destino) tambem precisa ser passavel sob o
+        mesmo criterio, evitando que o agente planeje pisar em risco fatal.
+        """
 
         start = self.pos
         frontier: list[tuple[int, int, Position]] = [(0, 0, start)]
@@ -461,6 +598,51 @@ class KnowledgeMap:
             path.append(parent)
         path.reverse()
         return path
+
+    def plan_to_target(self, goal: Position) -> list[Position]:
+        """Caminho seguro (so por celulas visitadas/seguras) ate ``goal``.
+
+        Diferente de plan_to_frontier, aqui o destino e fixo (um tesouro
+        memorizado, por exemplo). O caminho nunca cruza celulas suspeitas de
+        poco/teleporte. Retorna [] se nao houver rota segura.
+        """
+        start = self.pos
+        if goal == start:
+            return []
+        frontier: list[tuple[int, int, Position]] = [(manhattan(start, goal), 0, start)]
+        came_from: dict[Position, Optional[Position]] = {start: None}
+        best_cost: dict[Position, int] = {start: 0}
+        counter = 0
+
+        while frontier:
+            _, _, pos = heapq.heappop(frontier)
+            if pos == goal:
+                return self._reconstruct_path(came_from, goal)
+
+            cell = self.cell(pos)
+            # So expande a partir de celulas conhecidas/seguras; o destino pode
+            # ser incerto, mas nunca suspeito de poco/teleporte.
+            if pos != start and not (cell.visited or cell.safe):
+                continue
+
+            for nxt in self.neighbors(pos):
+                # O destino pode ser incerto, mas nao fatal; celulas de travessia
+                # tambem nao podem ser fatais.
+                if nxt != goal and self.is_hard_avoided(nxt):
+                    continue
+                if nxt == goal and self.is_hard_avoided(goal):
+                    return []
+                nxt_cell = self.cell(nxt)
+                step_cost = 1 + min(nxt_cell.visits, RISK_VISIT_PENALTY_CAP)
+                new_cost = best_cost[pos] + step_cost
+                if new_cost < best_cost.get(nxt, 10_000_000):
+                    best_cost[nxt] = new_cost
+                    came_from[nxt] = pos
+                    counter += 1
+                    priority = new_cost + manhattan(nxt, goal)
+                    heapq.heappush(frontier, (priority, counter, nxt))
+
+        return []
 
     def action_for_path(self, path: list[Position]) -> Optional[Action]:
         if len(path) < 2:
@@ -518,22 +700,67 @@ class DroneBrain:
         self.last_shot_step = -999
         self.step_count = 0
         self.last_reason = "inicio"
+        # Estado de combate/defesa, atualizado a partir das observacoes.
+        self.energy = 100  # atualizado via user status (q) pelo DroneAgent
+        self.shots_without_hit = 0
+        self.damage_flee_until = 0  # step_count ate o qual persiste a fuga
+
+    def observe_combat_signals(self, obs: Observation) -> None:
+        """Atualiza o estado interno de combate a partir de uma observacao.
+
+        Deve ser chamado a cada turno (com a observacao persistente) para manter
+        os contadores de tiros sem acerto e a janela de fuga por dano sincronizados.
+        """
+        if obs.has("hit"):
+            self.shots_without_hit = 0
+        if obs.has("damage") and REACT_TO_DAMAGE:
+            self.damage_flee_until = self.step_count + DAMAGE_FLEE_TURNS
 
     def decide(self, obs: Observation) -> Action:
         self.step_count += 1
+        self.observe_combat_signals(obs)
 
+        # 1. Defesa: se levou dano recentemente e nao tem inimigo na mira,
+        #    recua para sair da linha de tiro (morrer = -10 e fim de jogo).
+        if (
+            REACT_TO_DAMAGE
+            and self.step_count <= self.damage_flee_until
+            and not obs.has("enemy")
+        ):
+            self.last_reason = "defesa: fugindo de dano"
+            return self._flee_action()
+
+        # 2. Combate: atira se ha inimigo na mira, respeitando o cooldown e o
+        #    limite de tiros sem confirmar acerto (evita gastar -10 no vazio).
         if (
             obs.has("enemy")
             and self.step_count - self.last_shot_step >= SHOOT_COOLDOWN_STEPS
+            and self.shots_without_hit < MAX_SHOTS_WITHOUT_HIT
+            and self.energy > LOW_ENERGY_THRESHOLD
         ):
             self.last_shot_step = self.step_count
+            self.shots_without_hit += 1
             self.last_reason = "combate: inimigo na mira"
             return Action.SHOOT
 
+        # 3. Coleta de item bom/incerto na celula atual.
         if self.should_pick_item(obs):
             self.last_reason = f"coleta: {obs.item_kind}"
             return Action.GET_ITEM
 
+        # 4. Busca dirigida por tesouro/powerup memorizado e ainda nao coletado.
+        #    Com energia baixa, prioriza powerups para se recuperar.
+        target_kinds = (
+            ("powerup", "treasure") if self.energy <= LOW_ENERGY_THRESHOLD
+            else ("treasure", "powerup")
+        )
+        for kinds in target_kinds:
+            action = self._action_toward_spotted(kinds)
+            if action is not None:
+                self.last_reason = f"cacada: {kinds[0]} avistado"
+                return action
+
+        # 5. Exploracao por fronteira (faixas crescentes de risco tolerado).
         for max_risk in EXPLORATION_RISK_BANDS:
             path = self.world.plan_to_frontier(max_risk=max_risk)
             action = self.world.action_for_path(path)
@@ -543,6 +770,27 @@ class DroneBrain:
 
         self.last_reason = "fallback: menor risco local"
         return self.world.least_bad_local_action()
+
+    def _flee_action(self) -> Action:
+        """Recua/vira para abandonar a linha de tiro recebida."""
+        # Preferimos andar de re: sai da celula atual mantendo a mesma direcao.
+        back_target = add_pos(self.world.pos, self.world.heading.back().delta)
+        if (
+            self.world.in_bounds(back_target)
+            and not self.world.is_hard_avoided(back_target)
+        ):
+            return Action.BACKWARD
+        return Action.TURN_RIGHT
+
+    def _action_toward_spotted(self, kinds: tuple[str, ...]) -> Optional[Action]:
+        """Planeja um caminho seguro ate o item memorizado mais proximo."""
+        goal = self.world.nearest_spotted_item(kinds)
+        if goal is None:
+            return None
+        path = self.world.plan_to_target(goal)
+        if not path:
+            return None
+        return self.world.action_for_path(path)
 
     def should_pick_item(self, obs: Observation) -> bool:
         if not obs.has_light:
@@ -644,6 +892,19 @@ def parse_game_state(raw: str) -> str:
     return "unknown"
 
 
+def parse_energy(raw: str) -> Optional[int]:
+    """Extrai a energia do user status (comando q).
+
+    Respostas variam entre devkits; aceitamos formatos como "energy:75",
+    "energia=75", "energy 75" etc. Retorna None se nao encontrar.
+    """
+    lower = raw.lower()
+    match = re.search(r"energ(?:y|ia)\s*[:=]?\s*(-?\d+)", lower)
+    if match:
+        return int(match.group(1))
+    return None
+
+
 class DroneAgent:
     def __init__(self, client: DroneProtocol, name: str, color: tuple[int, int, int]) -> None:
         self.client = client
@@ -678,7 +939,15 @@ class DroneAgent:
 
             raw_obs = self._safe_request(Action.OBSERVE.wire)
             obs = Observation.parse(raw_obs)
-            self.world.update_from_observation(obs)
+            # Observacao volatil: so alimenta a decisao, sem gravar risco
+            # permanente (evita dobrar a evidencia com a leitura pos-acao).
+            self.world.update_from_observation(obs, persist=False)
+
+            # Atualiza a energia de tempos em tempos para o modo defensivo.
+            if step % ENERGY_CHECK_EVERY == 0:
+                energy = parse_energy(self._safe_request(Action.USER.wire))
+                if energy is not None:
+                    self.brain.energy = energy
 
             action = self.brain.decide(obs)
             self.world.prepare_action(action)
@@ -687,16 +956,18 @@ class DroneAgent:
             combined_obs = Observation.parse(";".join([raw_action, raw_after]))
             synced_pos = parse_position(self._safe_request(Action.POSITION.wire))
             self.world.resolve_action(combined_obs, synced_pos)
+            # Aqui sim gravamos a evidencia permanente do turno.
             self.world.update_from_observation(combined_obs)
 
             step += 1
             self.logger.info(
-                "passo=%03d acao=%s motivo=%s pos=%s dir=%s obs=%s mapa=[%s]",
+                "passo=%03d acao=%s motivo=%s pos=%s dir=%s energia=%s obs=%s mapa=[%s]",
                 step,
                 action.label,
                 self.brain.last_reason,
                 self.world.pos,
                 self.world.heading.label,
+                self.brain.energy,
                 sorted(combined_obs.tokens) or "-",
                 self.world.known_summary(),
             )

@@ -52,10 +52,18 @@ RISK_PIT = 80
 RISK_TELEPORT = 35
 RISK_ENEMY = 8
 RISK_UNKNOWN = 2
-EXPLORATION_RISK_BANDS = (0, 10, 45, 90)
+EXPLORATION_RISK_BANDS = (0, 10, 20)
 SHOOT_COOLDOWN_STEPS = 1
 PICK_WEAKLIGHT = True
 PICK_GREENLIGHT = False
+HARD_AVOID_PIT = True
+HARD_AVOID_TELEPORT = True
+REACT_TO_DAMAGE = True
+DAMAGE_FLEE_TURNS = 2
+MAX_SHOTS_WITHOUT_HIT = 3
+LOW_ENERGY_THRESHOLD = 35
+TREASURE_MEMORY_RADIUS = 6
+ENERGY_CHECK_EVERY = 5
 ```
 
 Efeitos comuns:
@@ -67,6 +75,15 @@ Efeitos comuns:
 - Mais focado em combate: diminua `RISK_ENEMY` e `SHOOT_COOLDOWN_STEPS`.
 - Mais conservador com itens incertos: mude `PICK_WEAKLIGHT = False`.
 - Nunca pegar veneno: deixe `PICK_GREENLIGHT = False`.
+- Permitir arriscar possivel poco/teleporte (NAO recomendado, cair encerra a
+  partida): mude `HARD_AVOID_PIT = False` / `HARD_AVOID_TELEPORT = False`.
+- Desligar a fuga apos dano: mude `REACT_TO_DAMAGE = False`.
+- Cacar tesouros mais longe: aumente `TREASURE_MEMORY_RADIUS`.
+
+IMPORTANTE: as bandas de `EXPLORATION_RISK_BANDS` agora controlam apenas risco
+de incerteza/inimigo. Risco de poco/teleporte e tratado como bloqueio absoluto
+por `HARD_AVOID_*`, porque cair nesses encerra a partida (PDF pag.3). Por isso
+as bandas ficaram menores que o risco de poco.
 
 ## Como mudar a prioridade geral
 
