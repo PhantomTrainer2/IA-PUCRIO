@@ -37,7 +37,7 @@ Arquivo principal: `agent.py`.
 - `KnowledgeMap.update_from_observation`: atualiza o mapa mental com breeze,
   flash, steps, enemy e luzes. Tem o parametro `persist` (volatil x permanente).
 - `KnowledgeMap.is_hard_avoided`: bloqueio absoluto de celulas suspeitas de
-  poco/teleporte (cair encerra a partida).
+  poco/teleporte (poco encerra a partida, teleporte joga em posicao aleatoria).
 - `KnowledgeMap.plan_to_frontier`: escolhe uma fronteira para explorar.
 - `KnowledgeMap.plan_to_target`: busca A* dirigida a um tesouro memorizado.
 - `DroneBrain.decide`: ordem de prioridade da tatica.
@@ -88,8 +88,8 @@ Efeitos comuns:
 
 IMPORTANTE: as bandas de `EXPLORATION_RISK_BANDS` agora controlam apenas risco
 de incerteza/inimigo. Risco de poco/teleporte e tratado como bloqueio absoluto
-por `HARD_AVOID_*`, porque cair nesses encerra a partida (PDF pag.3). Por isso
-as bandas ficaram menores que o risco de poco.
+por `HARD_AVOID_*`, porque poco encerra a partida e teleporte joga em posicao aleatoria (PDF pag.3). Por isso
+as bandas ficaram menores que o risco de poco/teleporte.
 
 ## Como mudar a prioridade geral
 

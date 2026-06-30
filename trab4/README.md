@@ -13,7 +13,7 @@ O agente combina:
 - Representacao logica do conhecimento: celulas visitadas, seguras, bloqueadas,
   possiveis pocos, possiveis teleportes, possiveis inimigos e itens percebidos.
 - Busca ponderada por risco: a fronteira mais promissora e escolhida tratando
-  celulas com brisa/flash como bloqueio absoluto (cair encerra a partida).
+  celulas com brisa/flash como bloqueio absoluto (poco encerra a partida, teleporte e imprevisivel).
 - Busca dirigida (A*) a tesouros/powerups memorizados e ainda nao coletados.
 
 Essa politica respeita a restricao de nao acessar o mapa real. O agente usa

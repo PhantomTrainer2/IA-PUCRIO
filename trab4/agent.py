@@ -36,10 +36,10 @@ RISK_ENEMY = 8
 RISK_UNKNOWN = 2
 RISK_LOCAL_TURN_PENALTY = 5
 RISK_VISIT_PENALTY_CAP = 5
-# Cair em poco/teleporte encerra a partida (PDF pag.3). Por isso a busca de
-# exploracao nunca aceita celulas com evidencia de poco/teleporte: as bandas
+# Cair em poco encerra a partida, e teleporte joga o agente em posicao aleatoria (PDF pag.3).
+# Por isso a busca de exploracao evita celulas com evidencia de poco/teleporte: as bandas
 # abaixo cobrem apenas risco "incerto" (RISK_UNKNOWN) e de inimigo, nunca o
-# risco de poço/teleporte, que precisa ser tratado como bloqueio.
+# risco de poco/teleporte, que precisa ser tratado como bloqueio.
 EXPLORATION_RISK_BANDS = (0, 10, 20)
 SHOOT_COOLDOWN_STEPS = 1
 ENEMY_SENSOR_RADIUS = 2
@@ -450,11 +450,6 @@ class KnowledgeMap:
         else:
             current.item = obs.item_kind or current.item
 
-        if not persist:
-            # Observacao "volatil" (so para decidir): nao propaga risco para os
-            # vizinhos. O risco permanente e gravado uma unica vez apos a acao.
-            return
-
         adjacent = self.neighbors(self.pos)
 
         if obs.has("breeze"):
@@ -517,10 +512,11 @@ class KnowledgeMap:
     def is_hard_avoided(self, pos: Position) -> bool:
         """Celulas suspeitas de poco/teleporte nunca devem ser pisadas.
 
-        Cair em poco ou teleporte encerra a partida (PDF pag.3), com penalidade
-        de -1000 no caso do poco. Por isso tratamos qualquer celula com evidencia
-        de poco/teleporte como bloqueio absoluto na busca, independente do risco
-        numerico. As flags permitem relaxar isso em testes.
+        Cair em poco encerra a partida (PDF pag.3), com penalidade de -1000.
+        Teleporte joga o agente em posicao aleatoria, o que atrapalha o mapa.
+        Por isso tratamos qualquer celula com evidencia de poco/teleporte como
+        bloqueio absoluto na busca, independente do risco numerico. As flags permitem
+        relaxar isso em testes.
         """
         if not self.in_bounds(pos):
             return True
@@ -672,6 +668,8 @@ class KnowledgeMap:
         for direction, action in candidates:
             target = add_pos(self.pos, direction.delta)
             risk = self.movement_risk(target)
+            if self.is_hard_avoided(target) and action in (Action.FORWARD, Action.BACKWARD):
+                risk += 10_000
             visits = self.cell(target).visits if self.in_bounds(target) else 999
             if action in (Action.TURN_LEFT, Action.TURN_RIGHT):
                 risk += RISK_LOCAL_TURN_PENALTY
@@ -918,29 +916,35 @@ class DroneAgent:
         self.logger.info("Conectado. Configurando nome e cor.")
         self._safe_request("name", self.name)
         self._safe_request("color", *self.color)
-        raw_pos = self._safe_request(Action.POSITION.wire)
-        pos = parse_position(raw_pos)
-        if pos is not None:
-            self.world.pos = pos
-            self.world.bounded = True
-            self.world.mark_safe(pos)
-            self.logger.info("Posicao inicial sincronizada: %s", pos)
-        else:
-            self.logger.info("Servidor nao informou posicao inicial; usando origem local.")
+        # Posicao inicial sera sincronizada no inicio da partida (play)
 
     def play(self, max_steps: Optional[int], delay: float) -> None:
         step = 0
+        in_game = False
         while max_steps is None or step < max_steps:
             state = parse_game_state(self._safe_request(Action.STATUS.wire))
             if state in {"ready", "gameover"}:
                 self.logger.info("Estado %s: aguardando comandos do jogo.", state)
                 time.sleep(max(delay, 1.0))
+                in_game = False
                 continue
+
+            if not in_game:
+                in_game = True
+                raw_pos = self._safe_request(Action.POSITION.wire)
+                pos = parse_position(raw_pos)
+                if pos is not None:
+                    self.world.pos = pos
+                    self.world.bounded = True
+                    self.world.mark_safe(pos)
+                    self.logger.info("Posicao inicial sincronizada: %s", pos)
+                else:
+                    self.logger.info("Servidor nao informou posicao inicial; usando origem local.")
 
             raw_obs = self._safe_request(Action.OBSERVE.wire)
             obs = Observation.parse(raw_obs)
-            # Observacao volatil: so alimenta a decisao, sem gravar risco
-            # permanente (evita dobrar a evidencia com a leitura pos-acao).
+            # Observacao volatil: so alimenta a decisao, sem gravar visitas 
+            # permanentes (evita dobrar a evidencia com a leitura pos-acao).
             self.world.update_from_observation(obs, persist=False)
 
             # Atualiza a energia de tempos em tempos para o modo defensivo.

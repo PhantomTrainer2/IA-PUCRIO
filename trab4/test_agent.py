@@ -140,10 +140,10 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(current.visits, 0)
 
         world.update_from_observation(Observation.parse("breeze"), persist=False)
-        # Volatil nao conta visita nem propaga brisa para os vizinhos.
+        # Volatil nao conta visita, mas propaga brisa para decisao imediata.
         self.assertEqual(current.visits, 0)
         neighbor = world.cell((10, 9))
-        self.assertEqual(neighbor.possible_pit, 0)
+        self.assertEqual(neighbor.possible_pit, 1)
 
     def test_persistent_update_marks_visited_and_propagates(self):
         world = KnowledgeMap(start=(10, 10), heading=Direction.NORTH, bounded=True)
