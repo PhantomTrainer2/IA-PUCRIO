@@ -162,3 +162,19 @@ Cada linha mostra o que aconteceu num passo:
   a posicao inicial; o agente usa a origem local e se corrige assim que o
   primeiro movimento e sincronizado.
 - **Muita saida na tela**: rode sem `--verbose`.
+
+## 11. Como Visualizar o Jogo Graficamente
+
+O código do agente (`agent.py`) roda via terminal e não possui interface gráfica própria (conforme as regras do trabalho). No entanto, você pode assistir à partida do seu agente rodando no mapa visual através do aplicativo do **GameServer** fornecido pelo professor.
+
+Para abrir o visualizador e acompanhar o seu agente:
+
+1. Vá até a pasta `Server Trab4` (onde estão os arquivos compilados `.pyc` do servidor).
+2. Dê um duplo clique no arquivo **`visualizar.bat`** (ou execute `py -3.11 main.pyc` se precisou instalar o Python 3.11).
+   - *Isso abrirá a janela gráfica do "INF1771 GameServer" que atua como um espectador da partida.*
+3. Note que o visualizador se conecta automaticamente ao servidor remoto oficial da PUC (`atari.icad.puc-rio.br`).
+4. **Com o visualizador já aberto**, abra outro terminal na pasta do seu agente (`trab4`) e execute-o **normalmente**, sem alterar o host:
+   ```bash
+   python agent.py
+   ```
+5. Pronto! O seu agente irá se conectar ao servidor oficial e, na janela do visualizador, você verá o seu drone (representado pela cor que você escolheu) surgir e começar a explorar o labirinto.
